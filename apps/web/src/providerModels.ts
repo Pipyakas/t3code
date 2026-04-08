@@ -15,11 +15,66 @@ const EMPTY_CAPABILITIES: ModelCapabilities = {
   promptInjectedEffortLevels: [],
 };
 
+const GEMINI_FALLBACK_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "auto-gemini-3",
+    name: "Auto (Gemini 3)",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "auto-gemini-2.5",
+    name: "Auto (Gemini 2.5)",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "gemini-3.1-pro-preview",
+    name: "Gemini 3.1 Pro (Preview)",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "gemini-3-flash-preview",
+    name: "Gemini 3 Flash (Preview)",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "gemini-3.1-flash-lite-preview",
+    name: "Gemini 3.1 Flash Lite (Preview)",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "gemini-2.5-flash",
+    name: "Gemini 2.5 Flash",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "gemini-2.5-flash-lite",
+    name: "Gemini 2.5 Flash Lite",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+];
+
 export function getProviderModels(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
 ): ReadonlyArray<ServerProviderModel> {
-  return providers.find((candidate) => candidate.provider === provider)?.models ?? [];
+  const models = providers.find((candidate) => candidate.provider === provider)?.models;
+  if (models && models.length > 0) {
+    return models;
+  }
+  return provider === "gemini" ? GEMINI_FALLBACK_MODELS : [];
 }
 
 export function getProviderSnapshot(
@@ -53,7 +108,25 @@ export function getProviderModelCapabilities(
   provider: ProviderKind,
 ): ModelCapabilities {
   const slug = normalizeModelSlug(model, provider);
-  return models.find((candidate) => candidate.slug === slug)?.capabilities ?? EMPTY_CAPABILITIES;
+  const direct = models.find((candidate) => candidate.slug === slug)?.capabilities;
+  if (direct) {
+    return direct;
+  }
+
+  // OpenCode can return model ids with effort variants (e.g. /high, /xhigh).
+  // Fall back to the base model capabilities when the exact slug is absent.
+  if (provider === "opencode" && typeof slug === "string") {
+    const slashIndex = slug.lastIndexOf("/");
+    if (slashIndex > 0) {
+      const baseSlug = slug.slice(0, slashIndex);
+      const base = models.find((candidate) => candidate.slug === baseSlug)?.capabilities;
+      if (base) {
+        return base;
+      }
+    }
+  }
+
+  return EMPTY_CAPABILITIES;
 }
 
 export function getDefaultServerModel(

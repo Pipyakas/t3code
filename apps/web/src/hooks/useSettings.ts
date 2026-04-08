@@ -186,6 +186,22 @@ export function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<s
     );
   }
 
+  if (Predicate.isString(legacySettings.geminiBinaryPath)) {
+    patch.providers ??= {};
+    patch.providers.gemini ??= {};
+    patch.providers.gemini.binaryPath = legacySettings.geminiBinaryPath;
+  }
+
+  if (Array.isArray(legacySettings.customGeminiModels)) {
+    patch.providers ??= {};
+    patch.providers.gemini ??= {};
+    patch.providers.gemini.customModels = normalizeCustomModelSlugs(
+      legacySettings.customGeminiModels,
+      new Set<string>(),
+      "gemini",
+    );
+  }
+
   return patch;
 }
 
