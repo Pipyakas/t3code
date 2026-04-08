@@ -6,21 +6,23 @@
 import type { ProviderKind, ServerProvider } from "@t3tools/contracts";
 import { Effect, Equal, Layer, PubSub, Ref, Stream } from "effect";
 
-import { ClaudeProviderLive } from "./ClaudeProvider";
-import { CodexProviderLive } from "./CodexProvider";
-import type { ClaudeProviderShape } from "../Services/ClaudeProvider";
-import { ClaudeProvider } from "../Services/ClaudeProvider";
-import type { CodexProviderShape } from "../Services/CodexProvider";
-import { CodexProvider } from "../Services/CodexProvider";
+import {
+  RUNTIME_PROVIDER_KINDS,
+  RuntimeProviderLive,
+  loadRuntimeProviderServices,
+} from "./providerIntegrations";
+import type { ServerProviderShape } from "../Services/ServerProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
 
 const loadProviders = (
-  codexProvider: CodexProviderShape,
-  claudeProvider: ClaudeProviderShape,
-): Effect.Effect<readonly [ServerProvider, ServerProvider]> =>
-  Effect.all([codexProvider.getSnapshot, claudeProvider.getSnapshot], {
-    concurrency: "unbounded",
-  });
+  providers: ReadonlyArray<ServerProviderShape>,
+): Effect.Effect<ReadonlyArray<ServerProvider>> =>
+  Effect.all(
+    providers.map((provider) => provider.getSnapshot),
+    {
+      concurrency: "unbounded",
+    },
+  );
 
 export const haveProvidersChanged = (
   previousProviders: ReadonlyArray<ServerProvider>,
@@ -30,21 +32,24 @@ export const haveProvidersChanged = (
 export const ProviderRegistryLive = Layer.effect(
   ProviderRegistry,
   Effect.gen(function* () {
-    const codexProvider = yield* CodexProvider;
-    const claudeProvider = yield* ClaudeProvider;
+    const runtimeProviders = yield* loadRuntimeProviderServices;
+    const runtimeProviderByKind = new Map<ProviderKind, ServerProviderShape>();
+    RUNTIME_PROVIDER_KINDS.forEach((kind, index) => {
+      runtimeProviderByKind.set(kind, runtimeProviders[index]!);
+    });
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
       PubSub.shutdown,
     );
     const providersRef = yield* Ref.make<ReadonlyArray<ServerProvider>>(
-      yield* loadProviders(codexProvider, claudeProvider),
+      yield* loadProviders(runtimeProviders),
     );
 
     const syncProviders = Effect.fn("syncProviders")(function* (options?: {
       readonly publish?: boolean;
     }) {
       const previousProviders = yield* Ref.get(providersRef);
-      const providers = yield* loadProviders(codexProvider, claudeProvider);
+      const providers = yield* loadProviders(runtimeProviders);
       yield* Ref.set(providersRef, providers);
 
       if (options?.publish !== false && haveProvidersChanged(previousProviders, providers)) {
@@ -54,27 +59,25 @@ export const ProviderRegistryLive = Layer.effect(
       return providers;
     });
 
-    yield* Stream.runForEach(codexProvider.streamChanges, () => syncProviders()).pipe(
-      Effect.forkScoped,
-    );
-    yield* Stream.runForEach(claudeProvider.streamChanges, () => syncProviders()).pipe(
-      Effect.forkScoped,
-    );
+    for (const runtimeProvider of runtimeProviders) {
+      yield* Stream.runForEach(runtimeProvider.streamChanges, () => syncProviders()).pipe(
+        Effect.forkScoped,
+      );
+    }
 
     const refresh = Effect.fn("refresh")(function* (provider?: ProviderKind) {
-      switch (provider) {
-        case "codex":
-          yield* codexProvider.refresh;
-          break;
-        case "claudeAgent":
-          yield* claudeProvider.refresh;
-          break;
-        default:
-          yield* Effect.all([codexProvider.refresh, claudeProvider.refresh], {
+      const selectedProvider = provider ? runtimeProviderByKind.get(provider) : undefined;
+      if (selectedProvider) {
+        yield* selectedProvider.refresh;
+      } else {
+        yield* Effect.all(
+          runtimeProviders.map((runtimeProvider) => runtimeProvider.refresh),
+          {
             concurrency: "unbounded",
-          });
-          break;
+          },
+        );
       }
+
       return yield* syncProviders();
     });
 
@@ -93,4 +96,4 @@ export const ProviderRegistryLive = Layer.effect(
       },
     } satisfies ProviderRegistryShape;
   }),
-).pipe(Layer.provideMerge(CodexProviderLive), Layer.provideMerge(ClaudeProviderLive));
+).pipe(Layer.provide(RuntimeProviderLive));

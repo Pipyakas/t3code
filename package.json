@@ -33,6 +33,7 @@
     "start:desktop": "turbo run start --filter=@t3tools/desktop",
     "start:marketing": "turbo run preview --filter=@t3tools/marketing",
     "start:mock-update-server": "bun run scripts/mock-update-server.ts",
+    "deploy": "bun run scripts/deploy-service.ts",
     "build": "turbo run build",
     "build:marketing": "turbo run build --filter=@t3tools/marketing",
     "build:desktop": "turbo run build --filter=@t3tools/desktop --filter=t3",
@@ -52,6 +53,9 @@
     "release:smoke": "node scripts/release-smoke.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo",
     "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

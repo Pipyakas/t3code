@@ -192,6 +192,11 @@ const makeEventStore = Effect.gen(function* () {
       payloadJson: event.payload,
       metadataJson: event.metadata,
     }).pipe(
+      Effect.tap((row) =>
+        Effect.sync(() =>
+          console.log("[DEBUG] OrchestrationEventStore.append raw row:", JSON.stringify(row)),
+        ),
+      ),
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "OrchestrationEventStore.append:insert",

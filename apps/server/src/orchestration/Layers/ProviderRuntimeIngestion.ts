@@ -493,6 +493,29 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "content.delta": {
+      if (event.payload.streamKind !== "reasoning_text") {
+        return [];
+      }
+
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "task.progress",
+          summary: "Reasoning update",
+          payload: {
+            taskId: `reasoning:${event.turnId ?? event.eventId}`,
+            detail: truncateDetail(event.payload.delta),
+            streamKind: event.payload.streamKind,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     default:
       break;
   }
@@ -1211,6 +1234,13 @@ const make = Effect.fn("make")(function* () {
     }
 
     const activities = runtimeEventToActivities(event);
+    if (event.type === "content.delta" && event.payload.streamKind === "reasoning_text") {
+      yield* Effect.logDebug("provider runtime ingestion mapped reasoning delta", {
+        eventId: event.eventId,
+        turnId: event.turnId,
+        activityCount: activities.length,
+      });
+    }
     yield* Effect.forEach(activities, (activity) =>
       orchestrationEngine.dispatch({
         type: "thread.activity.append",

@@ -42,6 +42,7 @@ import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { RUNTIME_PROVIDER_KINDS } from "./provider/runtimeProviderKinds";
 
 export interface ServerSettingsShape {
   /** Start the settings runtime and attach file watching. */
@@ -91,7 +92,7 @@ export class ServerSettingsService extends ServiceMap.Service<
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
 
-const PROVIDER_ORDER: readonly ProviderKind[] = ["codex", "claudeAgent"];
+const PROVIDER_ORDER: readonly ProviderKind[] = RUNTIME_PROVIDER_KINDS;
 
 /**
  * Ensure the `textGenerationModelSelection` points to an enabled provider.
