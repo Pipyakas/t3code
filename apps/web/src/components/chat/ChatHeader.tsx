@@ -13,6 +13,7 @@ import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScr
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
+import BranchToolbar from "../BranchToolbar";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -30,6 +31,8 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
+  onEnvModeChange?: (mode: "local" | "worktree") => void;
+  envLocked?: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -54,6 +57,8 @@ export const ChatHeader = memo(function ChatHeader({
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
+  onEnvModeChange,
+  envLocked,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -83,6 +88,13 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
+        {isGitRepo && onEnvModeChange && (
+          <BranchToolbar
+            threadId={activeThreadId}
+            onEnvModeChange={onEnvModeChange}
+            envLocked={envLocked ?? false}
+          />
+        )}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
