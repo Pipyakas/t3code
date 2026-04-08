@@ -1,6 +1,7 @@
 import {
   type ClaudeModelOptions,
   type CodexModelOptions,
+  type GeminiModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
   type ServerProviderModel,
@@ -52,6 +53,9 @@ function getRawEffort(
   if (provider === "codex") {
     return trimOrNull((modelOptions as CodexModelOptions | undefined)?.reasoningEffort);
   }
+  if (provider === "gemini") {
+    return null;
+  }
   return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
 }
 
@@ -72,6 +76,9 @@ function buildNextOptions(
 ): ProviderOptions {
   if (provider === "codex") {
     return { ...(modelOptions as CodexModelOptions | undefined), ...patch } as CodexModelOptions;
+  }
+  if (provider === "gemini") {
+    return { ...(modelOptions as GeminiModelOptions | undefined), ...patch } as GeminiModelOptions;
   }
   return { ...(modelOptions as ClaudeModelOptions | undefined), ...patch } as ClaudeModelOptions;
 }
@@ -221,7 +228,12 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     ],
   );
 
-  if (effort === null && thinkingEnabled === null && contextWindowOptions.length <= 1) {
+  if (
+    effort === null &&
+    thinkingEnabled === null &&
+    !caps.supportsFastMode &&
+    contextWindowOptions.length <= 1
+  ) {
     return null;
   }
 
@@ -271,7 +283,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       ) : null}
       {caps.supportsFastMode ? (
         <>
-          <MenuDivider />
+          {(effort || thinkingEnabled !== null) && <MenuDivider />}
           <MenuGroup>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
             <MenuRadioGroup
@@ -290,7 +302,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       ) : null}
       {contextWindowOptions.length > 1 ? (
         <>
-          <MenuDivider />
+          {(effort || thinkingEnabled !== null || caps.supportsFastMode) && <MenuDivider />}
           <MenuGroup>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
               Context Window
@@ -355,17 +367,24 @@ export const TraitsPicker = memo(function TraitsPicker({
     ultrathinkPromptControlled
       ? "Ultrathink"
       : effortLabel
-        ? effortLabel
+        ? `Effort ${effortLabel}`
         : thinkingEnabled === null
           ? null
           : `Thinking ${thinkingEnabled ? "On" : "Off"}`,
-    ...(caps.supportsFastMode && fastModeEnabled ? ["Fast"] : []),
+    ...(caps.supportsFastMode ? [fastModeEnabled ? "Fast on" : "Fast off"] : []),
     ...(contextWindowLabel ? [contextWindowLabel] : []),
   ]
     .filter(Boolean)
     .join(" · ");
 
-  const isCodexStyle = provider === "codex";
+  if (
+    effort === null &&
+    thinkingEnabled === null &&
+    !caps.supportsFastMode &&
+    contextWindowOptions.length <= 1
+  ) {
+    return null;
+  }
 
   return (
     <Menu
@@ -380,27 +399,18 @@ export const TraitsPicker = memo(function TraitsPicker({
             size="sm"
             variant={triggerVariant ?? "ghost"}
             className={cn(
-              isCodexStyle
-                ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:max-w-48 sm:px-3 [&_svg]:mx-0"
-                : "shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
+              "shrink-0 w-full whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3 justify-center",
               triggerClassName,
             )}
           />
         }
       >
-        {isCodexStyle ? (
-          <span className="flex min-w-0 w-full items-center gap-2 overflow-hidden">
-            {triggerLabel}
-            <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
-          </span>
-        ) : (
-          <>
-            <span>{triggerLabel}</span>
-            <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
-          </>
-        )}
+        <span className="flex w-full items-center justify-center gap-2 overflow-hidden">
+          <span className="truncate">{triggerLabel}</span>
+          <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
+        </span>
       </MenuTrigger>
-      <MenuPopup align="start">
+      <MenuPopup align="center">
         <TraitsMenuContent
           provider={provider}
           models={models}
