@@ -1783,12 +1783,17 @@ export default function Sidebar() {
         >
           {shouldShowThreadPanel && showEmptyThreadState ? (
             <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
-              <div
+              <button
                 data-thread-selection-safe
-                className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-[10px] text-muted-foreground/60"
+                className="empty-thread-btn flex h-6 w-full translate-x-0 items-center px-2 text-left text-[10px] text-muted-foreground/60 hover:text-foreground/80 hover:bg-accent rounded-sm transition-colors"
+                onClick={() => {
+                  const projectId = project.id;
+                  void handleNewThread(projectId, { envMode: "local" });
+                }}
               >
-                <span>No threads yet</span>
-              </div>
+                <span className="empty-thread-default">No threads yet</span>
+                <span className="empty-thread-hover hidden">Create new thread</span>
+              </button>
             </SidebarMenuSubItem>
           ) : null}
           {shouldShowThreadPanel &&

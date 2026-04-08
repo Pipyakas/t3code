@@ -467,3 +467,11 @@ label:has(> select#reasoning-effort) select {
   -webkit-background-clip: text;
   animation: ultrathink-rainbow 10s linear infinite;
 }
+
+.empty-thread-btn:hover .empty-thread-default {
+  display: none;
+}
+
+.empty-thread-btn:hover .empty-thread-hover {
+  display: inline;
+}
