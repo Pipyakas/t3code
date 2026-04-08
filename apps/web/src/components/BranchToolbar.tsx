@@ -109,9 +109,9 @@ export default function BranchToolbar({
   if (!activeThreadId || !activeProject) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
+    <div className="flex items-center justify-between gap-2 text-xs">
       {envLocked || activeWorktreePath ? (
-        <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
+        <span className="inline-flex items-center gap-1 border border-transparent px-1.5 py-0.5 font-medium text-muted-foreground/70">
           {activeWorktreePath ? (
             <>
               <GitForkIcon className="size-3" />
@@ -138,7 +138,7 @@ export default function BranchToolbar({
             )}
             <SelectValue />
           </SelectTrigger>
-          <SelectPopup>
+          <SelectPopup align="center">
             <SelectItem value="local">
               <span className="inline-flex items-center gap-1.5">
                 <FolderIcon className="size-3" />
