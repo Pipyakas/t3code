@@ -4,7 +4,9 @@ import { spawn } from "node:child_process";
 const run = (cmd: string, args: string[]): Promise<void> =>
   new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: "inherit", shell: true });
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(` exited with code ${code}`))));
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(` exited with code ${code}`)),
+    );
     child.on("error", reject);
   });
 

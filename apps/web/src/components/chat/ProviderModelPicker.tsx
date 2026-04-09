@@ -111,18 +111,18 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           />
         }
       >
-          <span className="flex w-full items-center justify-center gap-2">
-            <ProviderIcon
-              aria-hidden="true"
-              className={cn(
-                "size-4 shrink-0",
-                providerIconClassName(activeProvider, "text-muted-foreground/70"),
-                props.activeProviderIconClassName,
-              )}
-            />
-            <span className="truncate">{selectedModelLabel}</span>
-            <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
-          </span>
+        <span className="flex w-full items-center justify-center gap-2">
+          <ProviderIcon
+            aria-hidden="true"
+            className={cn(
+              "size-4 shrink-0",
+              providerIconClassName(activeProvider, "text-muted-foreground/70"),
+              props.activeProviderIconClassName,
+            )}
+          />
+          <span className="truncate">{selectedModelLabel}</span>
+          <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
+        </span>
       </MenuTrigger>
       <MenuPopup align="center">
         {props.lockedProvider !== null ? (

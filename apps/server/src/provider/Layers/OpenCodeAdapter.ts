@@ -15,6 +15,7 @@ import {
   EventId,
   RuntimeTurnState,
 } from "@t3tools/contracts";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Effect, Layer, Queue, Ref, Stream } from "effect";
 
 import {
@@ -78,7 +79,7 @@ const makeOpenCodeAdapter = Effect.gen(function* () {
   const sessionsIndex = new Map<ThreadId, ACPSessionInfo>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
 
-  let opencodeProcess: ReturnType<typeof Bun.spawn> | null = null;
+  let opencodeProcess: ChildProcessWithoutNullStreams | null = null;
   let isInitialized = false;
   let requestId = 0;
   const pendingRequests = new Map<
@@ -117,8 +118,7 @@ const makeOpenCodeAdapter = Effect.gen(function* () {
       });
 
       if (opencodeProcess?.stdin) {
-        const stdin = opencodeProcess.stdin as { write: (s: string) => void };
-        stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+        opencodeProcess.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
       } else {
         pendingRequests.delete(id);
         clearTimeout(timeoutHandle);
@@ -147,13 +147,16 @@ const makeOpenCodeAdapter = Effect.gen(function* () {
   const spawnOpenCode = Effect.gen(function* () {
     if (opencodeProcess || isInitialized) return;
 
-    opencodeProcess = Bun.spawn(["opencode", "acp"], {
+    opencodeProcess = spawn("opencode", ["acp"], {
       stdio: ["pipe", "pipe", "pipe"],
+      shell: process.platform === "win32",
     });
     debugLog("spawned opencode acp process");
 
     const decoder = new TextDecoder();
-    const stdout = opencodeProcess.stdout as ReadableStream<Uint8Array>;
+    const stdout = ReadableStream.fromWeb(
+      opencodeProcess.stdout as unknown as ReadableStream<Uint8Array>,
+    );
 
     const handleUpdate = (params: unknown) => {
       const payload = params as {

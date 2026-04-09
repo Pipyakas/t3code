@@ -100,7 +100,9 @@ export const GeminiProviderLive = Layer.effect(
         for (const binaryPath of resolveGeminiBinaryCandidates(settings.binaryPath)) {
           const attempt = yield* spawnAndCollect(
             binaryPath,
-            ChildProcess.make(binaryPath, [...args]),
+            ChildProcess.make(binaryPath, [...args], {
+              shell: process.platform === "win32",
+            }),
           ).pipe(Effect.result);
           if (Result.isSuccess(attempt)) {
             return attempt.success;

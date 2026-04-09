@@ -27,6 +27,8 @@
     "dev": "node scripts/dev-runner.ts dev",
     "dev:server": "node scripts/dev-runner.ts dev:server",
     "dev:web": "node scripts/dev-runner.ts dev:web",
+    "dev:web:open": "bun run build && node apps/server/dist/bin.mjs dev & node_modules/.bin/turbo run dev --filter=@t3tools/web",
+    "dev:watch": "bun run build && node scripts/watch-dev.ts",
     "dev:marketing": "turbo run dev --filter=@t3tools/marketing",
     "dev:desktop": "node scripts/dev-runner.ts dev:desktop",
     "start": "turbo run start --filter=t3",

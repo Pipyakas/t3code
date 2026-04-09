@@ -11,6 +11,7 @@ This fork adds **OpenCode** and **Gemini** as provider integrations, expanding b
 ### Provider Integrations
 
 #### OpenCode Provider
+
 - **Added** `OpenCodeProvider.ts` in `apps/server/src/provider/Layers/`
 - **Added** `OpenCodeAdapter.ts` in `apps/server/src/provider/Layers/`
   - Spawns `opencode acp` process for live sessions via JSON-RPC over stdio
@@ -19,15 +20,16 @@ This fork adds **OpenCode** and **Gemini** as provider integrations, expanding b
 - **Default model**: `opencode/big-pickle`
 
 #### Gemini Provider
+
 - **Added** `GeminiProvider.ts` in `apps/server/src/provider/Layers/`
 - **Default model**: `auto-gemini-2.5`
 
 ### Model Defaults
 
-| Provider | Upstream Default | Fork Default |
-|----------|-----------------|--------------|
+| Provider | Upstream Default             | Fork Default          |
+| -------- | ---------------------------- | --------------------- |
 | opencode | `opencode/minimax-m2.5-free` | `opencode/big-pickle` |
-| gemini | `gemini-3-flash-preview` | `auto-gemini-2.5` |
+| gemini   | `gemini-3-flash-preview`     | `auto-gemini-2.5`     |
 
 ### UI Changes
 
@@ -40,6 +42,7 @@ This fork adds **OpenCode** and **Gemini** as provider integrations, expanding b
 ### ACP Protocol (OpenCode)
 
 OpenCode uses the Agent Client Protocol (ACP) over stdio:
+
 - Process: `opencode acp`
 - Protocol: JSON-RPC 2.0 over stdin/stdout
 - Events streamed via `session/update` notifications
@@ -79,6 +82,7 @@ Simplified workflow for building Windows exe releases:
 **Requirements**: None - no signing required
 
 **Usage**:
+
 ```bash
 # Create and push a release tag
 git tag v0.0.1
@@ -86,6 +90,7 @@ git push origin v0.0.1
 ```
 
 The workflow:
+
 1. Builds Windows x64 NSIS installer on Windows runner
 2. Creates GitHub Release with `*.exe`, `*.blockmap`, and `latest*.yml` assets
 3. No signing required (unsigned build)
