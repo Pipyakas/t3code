@@ -4039,7 +4039,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           </div>
 
           {/* Input bar */}
-          <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+          <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-1 sm:pb-1")}>
             <form
               ref={composerFormRef}
               onSubmit={onSend}
@@ -4285,7 +4285,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                   orientation="vertical"
                                   className="mx-0.5 hidden h-4 sm:block"
                                 />
-                                <div className="basis-[30%] shrink-0">{providerTraitsPicker}</div>
+                                <div className="basis-[20%] shrink-0">{providerTraitsPicker}</div>
                               </>
                             ) : null}
 
@@ -4294,7 +4294,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               className="mx-0.5 hidden h-4 sm:block"
                             />
 
-                            <div className="basis-[10%] shrink-0">
+                            <div className="basis-[20%] shrink-0">
                               <Button
                                 variant="ghost"
                                 className="w-full justify-center whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
@@ -4351,7 +4351,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                   orientation="vertical"
                                   className="mx-0.5 hidden h-4 sm:block"
                                 />
-                                <div className="flex-1 min-w-0">
+                                <div className="basis-[20%] shrink-0">
                                   <Button
                                     variant="ghost"
                                     className={cn(
