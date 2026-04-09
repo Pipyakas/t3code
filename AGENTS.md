@@ -51,3 +51,8 @@ Docs:
 - Codex-Monitor (Tauri, feature-complete, strong reference implementation): https://github.com/Dimillian/CodexMonitor
 
 Use these as implementation references when designing protocol handling, UX flows, and operational safeguards.
+
+## Deployment
+
+- `bun run deploy` or `bun run scripts/deploy-service.ts` - Deploy the t3 server service
+- See `patch.md` for details on fork-specific changes

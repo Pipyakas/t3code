@@ -67,8 +67,8 @@ export type ModelCapabilities = typeof ModelCapabilities.Type;
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
   codex: "gpt-5.4",
   claudeAgent: "claude-sonnet-4-6",
-  gemini: "gemini-3-flash-preview",
-  opencode: "opencode/minimax-m2.5-free",
+  gemini: "auto-gemini-2.5",
+  opencode: "opencode/big-pickle",
 };
 
 export const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER.codex;
@@ -77,8 +77,8 @@ export const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER.codex;
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
   codex: "gpt-5.4-mini",
   claudeAgent: "claude-haiku-4-5",
-  gemini: "gemini-3-flash-preview",
-  opencode: "opencode/minimax-m2.5-free",
+  gemini: "auto-gemini-2.5",
+  opencode: "opencode/big-pickle",
 };
 
 export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string, string>> = {
@@ -112,7 +112,7 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "2.5-flash-lite": "gemini-2.5-flash-lite",
   },
   opencode: {
-    default: "opencode/minimax-m2.5-free",
+    default: "opencode/big-pickle",
     "5.4": "openai/gpt-5.4",
     "5.3": "openai/gpt-5.3-codex",
     "minimax-free": "opencode/minimax-m2.5-free",

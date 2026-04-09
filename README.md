@@ -1,6 +1,10 @@
 # T3 Code
 
-T3 Code is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
+> [!NOTE]
+> This is a fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code) with OpenCode and Gemini provider integrations.
+> See [patch.md](./patch.md) for details on fork-specific changes.
+
+T3 Code is a minimal web GUI for coding agents (currently Codex, Claude, OpenCode, and Gemini).
 
 ## Installation
 
