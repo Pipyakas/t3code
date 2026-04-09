@@ -50,6 +50,46 @@ OpenCode uses the Agent Client Protocol (ACP) over stdio:
 WebSocket → OrchestrationEngine → ProviderCommandReactor → ProviderService → OpenCodeAdapter → opencode acp process
 ```
 
+## Auto-Update Configuration
+
+This fork is configured to auto-update from GitHub releases at `Pipyakas/t3code`.
+
+### Build Windows EXE
+
+**Locally**: Not supported on Linux due to native module cross-compilation limitations. Use GitHub Actions.
+
+### Update Frequency
+
+- **Poll interval**: Daily (24 hours) - changed from upstream's 4 hours
+- **Check on startup** with 15 second delay
+- **Manual check** available via Help menu
+
+### For Private Repo Updates
+
+Set `T3CODE_DESKTOP_UPDATE_GITHUB_TOKEN` environment variable when running the app to authenticate with GitHub API for private repos.
+
+## Release Workflow
+
+### Windows-Only Release (`.github/workflows/release-windows.yml`)
+
+Simplified workflow for building Windows exe releases:
+
+**Trigger**: Push tag `v*.*.*` or manual workflow dispatch
+
+**Requirements**: None - no signing required
+
+**Usage**:
+```bash
+# Create and push a release tag
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+The workflow:
+1. Builds Windows x64 NSIS installer on Windows runner
+2. Creates GitHub Release with `*.exe`, `*.blockmap`, and `latest*.yml` assets
+3. No signing required (unsigned build)
+
 ### Future Considerations
 
 - History sync from OpenCode SQLite DB (shelved on `opencode-history-sync` branch)
