@@ -119,11 +119,10 @@ export function normalizeClaudeModelOptionsWithCapabilities(
 }
 
 export function normalizeGeminiModelOptionsWithCapabilities(
-  caps: ModelCapabilities,
-  modelOptions: GeminiModelOptions | null | undefined,
+  _caps: ModelCapabilities,
+  _modelOptions: GeminiModelOptions | null | undefined,
 ): GeminiModelOptions | undefined {
-  const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
-  return fastMode !== undefined ? { fastMode } : undefined;
+  return undefined;
 }
 
 export function isClaudeUltrathinkPrompt(text: string | null | undefined): boolean {

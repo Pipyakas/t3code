@@ -5,7 +5,6 @@ import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
 import {
   ClaudeModelOptions,
   CodexModelOptions,
-  GeminiModelOptions,
   OpenCodeModelOptions,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
 } from "./model";
@@ -153,9 +152,7 @@ const ClaudeModelOptionsPatch = Schema.Struct({
   contextWindow: Schema.optionalKey(ClaudeModelOptions.fields.contextWindow),
 });
 
-const GeminiModelOptionsPatch = Schema.Struct({
-  fastMode: Schema.optionalKey(GeminiModelOptions.fields.fastMode),
-});
+const GeminiModelOptionsPatch = Schema.Struct({});
 
 const ModelSelectionPatch = Schema.Union([
   Schema.Struct({

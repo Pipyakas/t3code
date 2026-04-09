@@ -16,6 +16,7 @@ import {
   RuntimeTurnState,
 } from "@t3tools/contracts";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { Readable } from "node:stream";
 import { Effect, Layer, Queue, Ref, Stream } from "effect";
 
 import {
@@ -154,9 +155,7 @@ const makeOpenCodeAdapter = Effect.gen(function* () {
     debugLog("spawned opencode acp process");
 
     const decoder = new TextDecoder();
-    const stdout = ReadableStream.fromWeb(
-      opencodeProcess.stdout as unknown as ReadableStream<Uint8Array>,
-    );
+    const stdout = Readable.toWeb(opencodeProcess.stdout);
 
     const handleUpdate = (params: unknown) => {
       const payload = params as {

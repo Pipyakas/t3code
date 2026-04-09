@@ -24,7 +24,7 @@ const PROVIDER = "gemini" as const;
 const DEFAULT_GEMINI_BINARIES = ["gemini", "gemini-cli"] as const;
 const DEFAULT_GEMINI_MODEL_CAPABILITIES: ModelCapabilities = {
   reasoningEffortLevels: [],
-  supportsFastMode: true,
+  supportsFastMode: false,
   supportsThinkingToggle: false,
   contextWindowOptions: [],
   promptInjectedEffortLevels: [],

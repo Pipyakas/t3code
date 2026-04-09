@@ -17,6 +17,14 @@ import { Config, Data, Effect, FileSystem, Layer, Logger, Option, Path, Schema }
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
+if (process.platform === "win32") {
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const bunBin = join(home, ".bun", "bin");
+  if (existsSync(join(bunBin, "bun.exe")) && !process.env.PATH?.includes(bunBin)) {
+    process.env.PATH = `${bunBin};${process.env.PATH}`;
+  }
+}
+
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
 
@@ -400,7 +408,7 @@ function validateBundledClientAssets(clientDir: string) {
     for (const ref of refs) {
       const normalizedRef = ref.split("#")[0]?.split("?")[0] ?? "";
       if (!normalizedRef) continue;
-      if (normalizedRef.startsWith("http://") || normalizedRef.startsWith("https://")) continue;
+      if (normalizedRef.startsWith("http://") || normalizedRef.startsWith("https://") || normalizedRef.startsWith("//")) continue;
       if (normalizedRef.startsWith("data:") || normalizedRef.startsWith("mailto:")) continue;
 
       const ext = path.extname(normalizedRef);

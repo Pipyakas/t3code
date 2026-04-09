@@ -2,7 +2,6 @@
 
 import { spawn, ChildProcess } from "node:child_process";
 import { watch } from "fs";
-import { join } from "node:path";
 
 const BUILD_CMD = "bun run build";
 const SERVER_CMD = "node apps/server/dist/bin.mjs dev";

@@ -536,14 +536,6 @@ function normalizeProviderModelOptions(
     candidate?.claudeAgent && typeof candidate.claudeAgent === "object"
       ? (candidate.claudeAgent as Record<string, unknown>)
       : null;
-  const geminiCandidate =
-    candidate?.gemini && typeof candidate.gemini === "object"
-      ? (candidate.gemini as Record<string, unknown>)
-      : null;
-  const opencodeCandidate =
-    candidate?.opencode && typeof candidate.opencode === "object"
-      ? (candidate.opencode as Record<string, unknown>)
-      : null;
 
   const codexReasoningEffort: CodexReasoningEffort | undefined =
     codexCandidate?.reasoningEffort === "low" ||
@@ -612,21 +604,9 @@ function normalizeProviderModelOptions(
         }
       : undefined;
 
-  const geminiFastMode =
-    geminiCandidate?.fastMode === true
-      ? true
-      : geminiCandidate?.fastMode === false
-        ? false
-        : undefined;
-  const gemini = geminiFastMode !== undefined ? { fastMode: geminiFastMode } : undefined;
+  const gemini = undefined;
 
-  const opencodeFastMode =
-    opencodeCandidate?.fastMode === true
-      ? true
-      : opencodeCandidate?.fastMode === false
-        ? false
-        : undefined;
-  const opencode = opencodeFastMode !== undefined ? { fastMode: opencodeFastMode } : undefined;
+  const opencode = undefined;
 
   if (!codex && !claude && !gemini && !opencode) {
     return null;

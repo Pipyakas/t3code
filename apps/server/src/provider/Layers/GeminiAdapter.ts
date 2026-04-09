@@ -1,17 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { Effect, Layer, Queue, Ref, Stream, Option, Result } from "effect";
+import { Effect, Layer, Queue, Ref, Stream } from "effect";
 
 import {
   EventId,
   type ProviderRuntimeEvent,
   type ThreadId,
   TurnId,
-  type ProviderSession,
   RuntimeTurnState,
 } from "@t3tools/contracts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { ProviderAdapterRequestError, ProviderAdapterSessionNotFoundError, ProviderAdapterValidationError } from "../Errors.ts";
+import { ProviderAdapterRequestError, ProviderAdapterSessionNotFoundError } from "../Errors.ts";
 import { GeminiAdapter, type GeminiAdapterShape } from "../Services/GeminiAdapter.ts";
 
 const PROVIDER = "gemini" as const;
@@ -163,7 +162,7 @@ export const makeGeminiAdapterLive = () =>
         });
 
         const decoder = new TextDecoder();
-        const reader = (child.stdout as any).on("data", (data: Uint8Array) => {
+        (child.stdout as any).on("data", (data: Uint8Array) => {
           const lines = decoder.decode(data).split("\n");
           for (const line of lines) {
             if (!line.trim()) continue;
