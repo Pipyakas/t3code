@@ -39,9 +39,15 @@ import {
   resolveClaudeModelsForVersion,
 } from "../ClaudeModelCatalog.ts";
 
-const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
-  optionDescriptors: [],
-});
+const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = (() => {
+  const def = BUNDLED_CLAUDE_MODEL_CATALOG.models.find((entry) => entry.model.isDefault)?.model
+    .capabilities;
+  if (def && (def.optionDescriptors?.length ?? 0) > 0) return def;
+  const fallback = BUNDLED_CLAUDE_MODEL_CATALOG.models.find(
+    (entry) => (entry.model.capabilities?.optionDescriptors?.length ?? 0) > 0,
+  )?.model.capabilities;
+  return fallback ?? createModelCapabilities({ optionDescriptors: [] });
+})();
 
 const CLAUDE_PRESENTATION = {
   displayName: "Claude",
