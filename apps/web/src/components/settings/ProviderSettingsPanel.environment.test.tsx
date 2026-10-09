@@ -144,13 +144,15 @@ import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 
 const environmentId = EnvironmentId.make("remote-device");
-const codexId = ProviderInstanceId.make("codex");
-const customId = ProviderInstanceId.make("codex_work");
+// OpenCode's default slot is off until configured, so every test that needs a
+// row passes either an explicit instance entry or a selected target.
+const defaultId = ProviderInstanceId.make("opencode");
+const customId = ProviderInstanceId.make("opencode_work");
 
 function provider(): ServerProvider {
   return {
-    instanceId: codexId,
-    driver: ProviderDriverKind.make("codex"),
+    instanceId: defaultId,
+    driver: ProviderDriverKind.make("opencode"),
     enabled: true,
     installed: true,
     version: "1.0.0",
@@ -164,7 +166,7 @@ function provider(): ServerProvider {
       status: "behind_latest",
       currentVersion: "1.0.0",
       latestVersion: "1.1.0",
-      updateCommand: "pnpm add -g @openai/codex@latest",
+      updateCommand: "pnpm add -g opencode-ai@latest",
       canUpdate: true,
       checkedAt: "2026-07-24T12:00:00.000Z",
       message: "Update available.",
@@ -236,17 +238,17 @@ describe("EnvironmentProviderSettings routing", () => {
       .mockResolvedValue({ _tag: "Success", value: { accepted: true } });
   });
 
-  it("shows Codex and Claude while hiding untouched disabled provider slots", () => {
+  it("shows Claude while hiding untouched disabled provider slots", () => {
     const panel = renderPanel();
-    for (const driver of ["codex", "claudeAgent"] as const) {
-      expect(
-        visitElements(
-          panel,
-          (element) => element.props.instanceId === driver && element.props.mode === "list",
-        ),
-      ).not.toBeNull();
-    }
-    for (const driver of ["cursor", "grok", "pi", "opencode", "antigravity"] as const) {
+    // Claude is the only default instance that runs before configuration; the
+    // ACP Registry driver has no default slot, and OpenCode starts disabled.
+    expect(
+      visitElements(
+        panel,
+        (element) => element.props.instanceId === "claudeAgent" && element.props.mode === "list",
+      ),
+    ).not.toBeNull();
+    for (const driver of ["opencode", "acpRegistry"] as const) {
       expect(
         visitElements(
           panel,
@@ -257,18 +259,18 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("keeps explicitly configured providers visible when disabled", () => {
-    const grokId = ProviderInstanceId.make("grok");
+    const acpId = ProviderInstanceId.make("acpRegistry_kilo");
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
-        [grokId]: { driver: ProviderDriverKind.make("grok"), enabled: false },
+        [acpId]: { driver: ProviderDriverKind.make("acpRegistry"), enabled: false },
       },
     };
     const panel = renderPanel();
     expect(
       visitElements(
         panel,
-        (element) => element.props.instanceId === grokId && element.props.mode === "list",
+        (element) => element.props.instanceId === acpId && element.props.mode === "list",
       ),
     ).not.toBeNull();
   });
@@ -276,12 +278,13 @@ describe("EnvironmentProviderSettings routing", () => {
   it("keeps legacy provider configuration visible when disabled", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
-      providers: {
-        ...DEFAULT_UNIFIED_SETTINGS.providers,
-        grok: {
-          ...DEFAULT_UNIFIED_SETTINGS.providers.grok,
+      providerInstances: {
+        [defaultId]: {
+          driver: ProviderDriverKind.make("opencode"),
           enabled: false,
-          binaryPath: "/custom/grok",
+          config: {
+            binaryPath: "/custom/opencode",
+          },
         },
       },
     };
@@ -289,7 +292,7 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(
       visitElements(
         panel,
-        (element) => element.props.instanceId === "grok" && element.props.mode === "list",
+        (element) => element.props.instanceId === defaultId && element.props.mode === "list",
       ),
     ).not.toBeNull();
   });
@@ -302,6 +305,12 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("routes refresh and provider update commands to the selected environment", async () => {
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [defaultId]: { driver: ProviderDriverKind.make("opencode"), enabled: true },
+      },
+    };
     atoms.providers = [provider()];
     const panel = renderPanel();
     const refreshButton = visitElements(panel, isRefreshButton);
@@ -317,7 +326,7 @@ describe("EnvironmentProviderSettings routing", () => {
     const providerCard = visitElements(
       panel,
       (element) =>
-        element.props.instanceId === codexId && typeof element.props.onRunUpdate === "function",
+        element.props.instanceId === defaultId && typeof element.props.onRunUpdate === "function",
     );
     expect(providerCard).not.toBeNull();
     (providerCard?.props.onRunUpdate as (() => void) | undefined)?.();
@@ -325,7 +334,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
     expect(commands.updateProvider).toHaveBeenCalledWith({
       environmentId,
-      input: { provider: ProviderDriverKind.make("codex"), instanceId: codexId },
+      input: { provider: ProviderDriverKind.make("opencode"), instanceId: defaultId },
     });
   });
 
@@ -333,7 +342,7 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
-        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+        [customId]: { driver: ProviderDriverKind.make("opencode"), enabled: true },
       },
     };
     atoms.providers = [provider()];
@@ -343,21 +352,31 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it.each([
-    ["onFavoriteModelsChange", { favorites: [{ provider: codexId, model: "chosen" }] }],
+    ["onFavoriteModelsChange", { favorites: [{ provider: defaultId, model: "chosen" }] }],
     [
       "onHiddenModelsChange",
-      { providerModelPreferences: { [codexId]: { hiddenModels: ["chosen"], modelOrder: [] } } },
+      {
+        providerModelPreferences: { [defaultId]: { hiddenModels: ["chosen"], modelOrder: [] } },
+      },
     ],
     [
       "onModelOrderChange",
-      { providerModelPreferences: { [codexId]: { hiddenModels: [], modelOrder: ["chosen"] } } },
+      { providerModelPreferences: { [defaultId]: { hiddenModels: [], modelOrder: ["chosen"] } } },
     ],
   ])("saves %s on this device without changing the selected server", (action, expected) => {
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [defaultId]: { driver: ProviderDriverKind.make("opencode"), enabled: true },
+      },
+    };
     atoms.providers = [provider()];
-    const panel = renderPanel();
+    // Target the OpenCode default slot: the editor otherwise opens on the first
+    // row, which is Claude's default instance.
+    const panel = renderPanel({ targetInstanceId: defaultId });
     const editor = visitElements(
       panel,
-      (element) => element.props.instanceId === codexId && element.props.mode === "editor",
+      (element) => element.props.instanceId === defaultId && element.props.mode === "editor",
     );
     expect(editor).not.toBeNull();
     if (!editor) throw new Error("Provider editor was not rendered");
@@ -379,7 +398,7 @@ describe("EnvironmentProviderSettings routing", () => {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
         [customId]: {
-          driver: ProviderDriverKind.make("codex"),
+          driver: ProviderDriverKind.make("opencode"),
           enabled: true,
         },
       },
@@ -460,12 +479,12 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
-        [codexId]: {
-          driver: ProviderDriverKind.make("codex"),
+        [defaultId]: {
+          driver: ProviderDriverKind.make("opencode"),
           enabled: false,
         },
         [customId]: {
-          driver: ProviderDriverKind.make("codex"),
+          driver: ProviderDriverKind.make("opencode"),
           enabled: true,
         },
       },
@@ -497,13 +516,13 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.mutateProviderInstance.mockClear();
     const defaultRow = visitElements(
       panel,
-      (element) => element.props.instanceId === codexId && element.props.mode === "list",
+      (element) => element.props.instanceId === defaultId && element.props.mode === "list",
     );
     (defaultRow?.props.onSelect as (() => void) | undefined)?.();
     panel = renderPanel();
     const defaultCard = visitElements(
       panel,
-      (element) => element.props.instanceId === codexId && element.props.mode === "editor",
+      (element) => element.props.instanceId === defaultId && element.props.mode === "editor",
     );
     const resetAction = defaultCard?.props.headerAction;
     const resetButton = visitElements(
@@ -515,10 +534,9 @@ describe("EnvironmentProviderSettings routing", () => {
     await flushPromises();
 
     const [resetMutation, resetPatch] = settingsState.mutateProviderInstance.mock.lastCall ?? [];
-    expect(resetMutation).toEqual({ operation: "remove", instanceId: codexId });
-    expect(Object.keys(resetPatch ?? {}).sort()).toEqual(["providers"]);
-    expect(resetPatch).not.toHaveProperty("favorites");
-    expect(resetPatch).not.toHaveProperty("providerModelPreferences");
+    expect(resetMutation).toEqual({ operation: "remove", instanceId: defaultId });
+    // Removing the instance is the whole reset; shared preferences stay untouched.
+    expect(resetPatch ?? {}).toEqual({});
   });
 
   it("updates one provider instance without sending a stale whole map", async () => {
@@ -526,7 +544,7 @@ describe("EnvironmentProviderSettings routing", () => {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
         [customId]: {
-          driver: ProviderDriverKind.make("codex"),
+          driver: ProviderDriverKind.make("opencode"),
           enabled: true,
           displayName: "Work",
         },
@@ -535,7 +553,7 @@ describe("EnvironmentProviderSettings routing", () => {
     const panel = renderPanel();
     const card = visitElements(panel, (element) => element.props.instanceId === customId);
     const next = {
-      driver: ProviderDriverKind.make("codex"),
+      driver: ProviderDriverKind.make("opencode"),
       enabled: false,
       displayName: "Work",
     };
