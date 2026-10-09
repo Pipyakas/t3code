@@ -790,26 +790,26 @@ describe("provider enabled defaults", () => {
   it("enables only the stable bindings by default", () => {
     const enabledByDefault = (driver: string) =>
       resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make(driver), config: {} });
-    expect(enabledByDefault("codex")).toBe(true);
+    expect(enabledByDefault("opencode")).toBe(true);
     expect(enabledByDefault("claudeAgent")).toBe(true);
-    for (const driver of ["cursor", "grok", "muse", "pi", "opencode", "antigravity"]) {
+    for (const driver of ["codex", "cursor", "grok", "muse", "pi", "antigravity"]) {
       expect(enabledByDefault(driver)).toBe(false);
     }
   });
 
   it("resolves instance enabled state with explicit false winning", () => {
     const grok = ProviderDriverKind.make("grok");
-    const codex = ProviderDriverKind.make("codex");
+    const opencode = ProviderDriverKind.make("opencode");
     // No flags anywhere: driver default applies.
     expect(resolveProviderInstanceEnabled({ driver: grok, config: {} })).toBe(false);
-    expect(resolveProviderInstanceEnabled({ driver: codex, config: {} })).toBe(true);
+    expect(resolveProviderInstanceEnabled({ driver: opencode, config: {} })).toBe(true);
     // Unknown fork drivers stay enabled.
     expect(
       resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("ollama"), config: {} }),
     ).toBe(true);
     // Envelope flag wins over the driver default.
     expect(resolveProviderInstanceEnabled({ driver: grok, enabled: true, config: {} })).toBe(true);
-    expect(resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: {} })).toBe(
+    expect(resolveProviderInstanceEnabled({ driver: opencode, enabled: false, config: {} })).toBe(
       false,
     );
     // Legacy in-config flag fills in when the envelope is silent.
@@ -819,7 +819,11 @@ describe("provider enabled defaults", () => {
       resolveProviderInstanceEnabled({ driver: grok, enabled: true, config: { enabled: false } }),
     ).toBe(false);
     expect(
-      resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: { enabled: true } }),
+      resolveProviderInstanceEnabled({
+        driver: opencode,
+        enabled: false,
+        config: { enabled: true },
+      }),
     ).toBe(false);
   });
 });

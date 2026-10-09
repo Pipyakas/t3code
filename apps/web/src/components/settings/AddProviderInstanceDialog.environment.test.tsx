@@ -118,7 +118,7 @@ function button(dialog: unknown, label: string) {
 
 function prepareInstance() {
   let dialog = renderDialog();
-  (button(dialog, "Configure manually").props.onClick as () => void)();
+  (button(dialog, "Next").props.onClick as () => void)();
   dialog = renderDialog();
   const label = visitElements(dialog, (entry) => entry.props.placeholder === "e.g. Work");
   if (!label) throw new Error("Missing instance label input.");
@@ -147,7 +147,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
       tree,
       (element) => element.props["aria-labelledby"] === "add-instance-driver-label",
     );
-    (group!.props.onValueChange as (value: string) => void)("grok");
+    (group!.props.onValueChange as (value: string) => void)("opencode");
     tree = render();
     (findByChildren(tree, "Next").props.onClick as () => void)();
     tree = render();
@@ -157,20 +157,19 @@ describe("AddProviderInstanceDialog environment routing", () => {
     await Promise.resolve();
     expect(settingsHooks.mutate).toHaveBeenCalledWith({
       operation: "create",
-      instanceId: "grok",
-      instance: { driver: "grok", enabled: true, displayName: "Grok" },
+      instanceId: "opencode",
+      instance: { driver: "opencode", enabled: true, displayName: "OpenCode" },
     });
   });
 
   it("chooses an unused identity for another account without replacing configured instances", async () => {
     settingsHooks.read.mockReturnValue({
       providerInstances: {
-        codex_2: { driver: "codex", enabled: false },
+        claudeAgent_2: { driver: "claudeAgent", enabled: false },
       },
     });
     let tree = render();
-    // Codex offers ChatGPT sign-in first; manual setup keeps the existing CLI flow.
-    (findByChildren(tree, "Configure manually").props.onClick as () => void)();
+    (findByChildren(tree, "Next").props.onClick as () => void)();
     tree = render();
     (findByChildren(tree, "Next").props.onClick as () => void)();
     tree = render();
@@ -178,12 +177,11 @@ describe("AddProviderInstanceDialog environment routing", () => {
     await Promise.resolve();
     expect(settingsHooks.mutate).toHaveBeenCalledWith({
       operation: "create",
-      instanceId: "codex_3",
+      instanceId: "claudeAgent_3",
       instance: {
-        driver: "codex",
+        driver: "claudeAgent",
         enabled: true,
-        displayName: "Codex",
-        config: { setupMode: "existing" },
+        displayName: "Claude",
       },
     });
   });
@@ -381,12 +379,11 @@ describe("AddProviderInstanceDialog environment routing", () => {
     await Promise.resolve();
     expect(settingsHooks.mutate).toHaveBeenCalledWith({
       operation: "create",
-      instanceId: "codex_work",
+      instanceId: "claudeAgent_work",
       instance: {
-        driver: "codex",
+        driver: "claudeAgent",
         enabled: true,
         displayName: "Work",
-        config: { setupMode: "existing" },
       },
     });
     expect(actions.toast).toHaveBeenCalledWith(

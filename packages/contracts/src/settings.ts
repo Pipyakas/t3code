@@ -1354,19 +1354,19 @@ export const providerInstanceConfigEnabledFlag = (config: unknown): boolean | un
  * `enabled` decoding default of each driver's settings schema.
  */
 const DEFAULT_DISABLED_PROVIDER_DRIVERS: ReadonlySet<ProviderDriverKind> = new Set(
-  ["cursor", "grok", "muse", "pi", "opencode", "antigravity"].map((driver) =>
+  ["codex", "cursor", "grok", "muse", "pi", "antigravity"].map((driver) =>
     ProviderDriverKind.make(driver),
   ),
 );
 
 /** Built-in drivers whose default instance runs before the user configures it. */
 const DEFAULT_ENABLED_DEFAULT_INSTANCES: ReadonlySet<ProviderInstanceId> = new Set(
-  ["codex", "claudeAgent"].map((instanceId) => ProviderInstanceId.make(instanceId)),
+  ["opencode", "claudeAgent"].map((instanceId) => ProviderInstanceId.make(instanceId)),
 );
 
 /**
  * Whether the built-in default instance at `instanceId` is enabled while
- * settings have no `providerInstances` entry for it. Only Codex and Claude
+ * settings have no `providerInstances` entry for it. Only OpenCode and Claude
  * start on; any other id without an entry has no running instance.
  */
 export const isUnconfiguredDefaultInstanceEnabled = (instanceId: ProviderInstanceId): boolean =>

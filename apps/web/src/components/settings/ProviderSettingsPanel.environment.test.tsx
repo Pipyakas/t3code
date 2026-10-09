@@ -238,24 +238,24 @@ describe("EnvironmentProviderSettings routing", () => {
       .mockResolvedValue({ _tag: "Success", value: { accepted: true } });
   });
 
-  it("shows Claude while hiding untouched disabled provider slots", () => {
+  it("shows Claude and OpenCode while hiding untouched disabled provider slots", () => {
     const panel = renderPanel();
-    // Claude is the only default instance that runs before configuration; the
-    // ACP Registry driver has no default slot, and OpenCode starts disabled.
-    expect(
-      visitElements(
-        panel,
-        (element) => element.props.instanceId === "claudeAgent" && element.props.mode === "list",
-      ),
-    ).not.toBeNull();
-    for (const driver of ["opencode", "acpRegistry"] as const) {
+    // Claude and OpenCode are the default instances that run before
+    // configuration; the ACP Registry driver has no default slot.
+    for (const driver of ["claudeAgent", "opencode"] as const) {
       expect(
         visitElements(
           panel,
           (element) => element.props.instanceId === driver && element.props.mode === "list",
         ),
-      ).toBeNull();
+      ).not.toBeNull();
     }
+    expect(
+      visitElements(
+        panel,
+        (element) => element.props.instanceId === "acpRegistry" && element.props.mode === "list",
+      ),
+    ).toBeNull();
   });
 
   it("keeps explicitly configured providers visible when disabled", () => {

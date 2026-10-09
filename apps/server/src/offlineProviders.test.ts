@@ -1,5 +1,10 @@
 import { expect, it } from "@effect/vitest";
-import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  isUnconfiguredDefaultInstanceEnabled,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  resolveProviderInstanceEnabled,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { BUILT_IN_DRIVERS } from "./provider/builtInDrivers.ts";
 import * as Settings from "./serverSettings.ts";
@@ -30,3 +35,13 @@ it.effect("registers only Claude, OpenCode and ACP and rejects removed instance 
     expect(result.providerInstances[ProviderInstanceId.make("work")]?.driver).toBe("opencode");
   }).pipe(Effect.provide(Settings.layerTest())),
 );
+
+it("starts OpenCode and Claude by default and keeps Codex off", () => {
+  for (const instanceId of ["opencode", "claudeAgent"]) {
+    expect(isUnconfiguredDefaultInstanceEnabled(ProviderInstanceId.make(instanceId))).toBe(true);
+  }
+  expect(isUnconfiguredDefaultInstanceEnabled(ProviderInstanceId.make("codex"))).toBe(false);
+  expect(
+    resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("opencode"), config: {} }),
+  ).toBe(true);
+});

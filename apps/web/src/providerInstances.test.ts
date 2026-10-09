@@ -217,14 +217,18 @@ describe("applyProviderInstanceSettings", () => {
 
   it("uses the driver default for an unconfigured built-in default instance", () => {
     const entries = deriveProviderInstanceEntries([
-      provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex", enabled: false }),
-      provider({ provider: ProviderDriverKind.make("grok"), instanceId: "grok", enabled: true }),
+      provider({
+        provider: ProviderDriverKind.make("opencode"),
+        instanceId: "opencode",
+        enabled: false,
+      }),
+      provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex", enabled: true }),
     ]);
-    const [codex, grok] = applyProviderInstanceSettings(entries, { providerInstances: {} });
+    const [opencode, codex] = applyProviderInstanceSettings(entries, { providerInstances: {} });
 
-    // Settings decide over a stale probe: Codex starts on, Grok starts off.
-    expect(codex?.enabled).toBe(true);
-    expect(grok?.enabled).toBe(false);
+    // Settings decide over a stale probe: OpenCode starts on, Codex starts off.
+    expect(opencode?.enabled).toBe(true);
+    expect(codex?.enabled).toBe(false);
   });
 });
 
