@@ -1,93 +1,30 @@
 name: Offline nightly
 
-# Keeps this fork's default branch merged with upstream main and publishes an
-# unsigned Windows x64 nightly that installed copies auto-update from.
-#
-# Setup (once):
-#   - Repository secret SYNC_TOKEN: a fine-grained PAT for this repository with
-#     Contents: read/write and Workflows: read/write. GITHUB_TOKEN cannot push
-#     merges that touch upstream's .github/workflows files.
-#   - Enable Actions on the fork. Scheduled runs only fire on the default branch.
+# Publishes an unsigned Windows x64 nightly for every push to main. Upstream is
+# merged, with conflicts resolved, by a scheduled agent on a local machine
+# before it pushes; installed copies auto-update from these releases.
 
 on:
-  schedule:
-    - cron: "17 2 * * *"
+  push:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      force_build:
-        description: "Build even when upstream has no new commits"
-        type: boolean
-        default: false
 
 concurrency:
   group: offline-nightly
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
   actions: write
-  issues: write
-
-env:
-  UPSTREAM_REPO: pingdotgg/t3code
-  UPSTREAM_BRANCH: main
 
 jobs:
-  sync:
-    name: Merge upstream
+  # Upstream's workflows target its own runners, secrets, and services.
+  # Merges keep bringing them back, so disable everything but this file.
+  disable_upstream_workflows:
+    name: Disable upstream workflows
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      sha: ${{ steps.merge.outputs.sha }}
-      changed: ${{ steps.merge.outputs.changed }}
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 0
-          token: ${{ secrets.SYNC_TOKEN }}
-
-      - id: merge
-        name: Merge upstream main
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
-
-          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
-            echo "Already up to date with upstream."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          elif git merge --no-edit FETCH_HEAD -m "chore: merge upstream ${UPSTREAM_BRANCH}"; then
-            git push origin HEAD
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            conflicts="$(git diff --name-only --diff-filter=U | sed 's/^/- /')"
-            git merge --abort
-            title="Upstream merge conflict"
-            body="Merging \`${UPSTREAM_REPO}@$(git rev-parse --short FETCH_HEAD)\` into \`$(git rev-parse --abbrev-ref HEAD)\` conflicts. Resolve locally with \`git fetch upstream && git merge upstream/${UPSTREAM_BRANCH}\` and push.
-
-          ${conflicts}
-
-          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            existing="$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')"
-            if [[ -n "$existing" ]]; then
-              gh issue comment "$existing" --body "$body"
-            else
-              gh issue create --title "$title" --body "$body"
-            fi
-            echo "::error::Upstream merge conflicts; see the opened issue."
-            exit 1
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      # Upstream's workflows target its own runners, secrets, and services.
-      # Merges keep bringing them back, so disable everything but this file.
       - name: Disable upstream workflows
         shell: bash
         env:
@@ -103,15 +40,12 @@ jobs:
 
   build:
     name: Build Windows x64
-    needs: [sync]
-    if: needs.sync.outputs.changed == 'true' || inputs.force_build
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ needs.sync.outputs.sha }}
           sparse-checkout: |
             /*
             !/.repos/
@@ -148,7 +82,7 @@ jobs:
           node scripts/resolve-nightly-release.ts \
             --date "$(date -u +%Y%m%d)" \
             --run-number "${{ github.run_number }}" \
-            --sha "${{ needs.sync.outputs.sha }}" \
+            --sha "${{ github.sha }}" \
             --github-output
 
       - name: Build installer
@@ -166,7 +100,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          target_commitish: ${{ needs.sync.outputs.sha }}
+          target_commitish: ${{ github.sha }}
           name: ${{ steps.meta.outputs.name }}
           prerelease: true
           make_latest: false
