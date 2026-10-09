@@ -24,6 +24,24 @@ import {
   serviceStateHasPendingUpdate,
 } from "./serviceProtocol.ts";
 
+it("reads the T3 home back out of a Windows task's quoted arguments", () => {
+  const baseDir = "C:\\Users\\Jo Doe\\T3 & co\\";
+  const task = BootService.renderBootServiceTask(
+    {
+      program: [
+        "C:\\Users\\Jo Doe\\T3 & co\\runtime\\versions\\1.2.3\\t3.exe",
+        "__service-launcher",
+      ],
+      baseDir,
+      logPath: "C:\\Users\\Jo Doe\\T3 & co\\userdata\\logs\\boot-service.log",
+      unitPath: "C:\\Users\\Jo Doe\\AppData\\Local\\t3code\\t3code-service.xml",
+    },
+    { userId: "CORP\\jo", homeDir: "C:\\Users\\Jo Doe" },
+  );
+  expect(task).toContain("T3 &amp; co");
+  expect(BootService.bootServiceBaseDirOf(task)).toBe(baseDir);
+});
+
 const linuxRuntime = "/home/theo/.t3/runtime/versions/1.2.3/t3";
 const linuxPlan = {
   program: [linuxRuntime, "__service-launcher"],
@@ -154,11 +172,15 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
     linger: string;
     enabled: boolean;
     active: boolean;
+    elevated: boolean;
+    taskState: string;
   } = {
     failCommand: undefined,
     linger: "yes",
     enabled: true,
     active: true,
+    elevated: true,
+    taskState: "Running",
   };
   const runner = ProcessRunner.ProcessRunner.of({
     run: Effect.fn("test.run_boot_service_command")(function* (
@@ -187,11 +209,17 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
               `t3 v${/versions\/([^/]+)\//.exec(input.command)?.[1] ?? "1.2.3"}\n`
             : input.command === "loginctl" && input.args[0] === "show-user"
               ? `${control.linger}\n`
-              : input.args[1] === "is-enabled"
-                ? control.enabled
-                  ? "enabled\n"
-                  : "disabled\n"
-                : "",
+              : input.command === "whoami"
+                ? control.elevated
+                  ? "Mandatory Label\\High Mandatory Level Label S-1-16-12288\r\n"
+                  : "Mandatory Label\\Medium Mandatory Level Label S-1-16-8192\r\n"
+                : input.command === "powershell.exe"
+                  ? `${control.taskState}\r\n`
+                  : input.args[1] === "is-enabled"
+                    ? control.enabled
+                      ? "enabled\n"
+                      : "disabled\n"
+                    : "",
         stderr: "",
         code: ChildProcessSpawner.ExitCode(
           failed || (input.args[1] === "is-active" && !control.active) ? 1 : 0,
@@ -237,6 +265,9 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
             ConfigProvider.fromEnv({
               env: {
                 HOME: home,
+                ...(platform === "win32"
+                  ? { USERPROFILE: home, USERNAME: "alice", USERDOMAIN: "CORP" }
+                  : {}),
                 ...(environmentPath === undefined || environmentPath === ""
                   ? {}
                   : { PATH: environmentPath }),
@@ -675,11 +706,55 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
     }),
   );
 
-  it.effect("fails closed on Windows", () =>
+  it.effect("installs, reports current state, and uninstalls on Windows", () =>
     Effect.gen(function* () {
-      const { service } = yield* makeHarness("win32");
-      expect((yield* service.status).supported).toBe(false);
-      expect((yield* service.install().pipe(Effect.flip))._tag).toBe("BootServiceUnsupportedError");
+      const { service, fs, commands, control, runtime } = yield* makeHarness("win32");
+      const plan = yield* service.install();
+
+      // schtasks only reads UTF-16 task XML.
+      const bytes = yield* fs.readFile(plan.unitPath);
+      expect([bytes[0], bytes[1]]).toEqual([0xff, 0xfe]);
+      const task = new TextDecoder("utf-16le").decode(bytes.subarray(2));
+      expect(task).toContain("<UserId>CORP\\alice</UserId>");
+      expect(task).toContain("<LogonType>S4U</LogonType>");
+      expect(task).toContain(`<Command>${runtime.entryPath}</Command>`);
+      expect(BootService.bootServiceBaseDirOf(task)).toBe(plan.baseDir);
+      expect(commands).toEqual([
+        "whoami /groups",
+        `${runtime.entryPath} --version`,
+        `schtasks /Create /TN T3 Code Server /XML ${plan.unitPath} /F`,
+        "schtasks /Run /TN T3 Code Server",
+      ]);
+      expect(yield* service.status).toMatchObject({ current: true, problems: [] });
+
+      control.taskState = "Ready";
+      expect(yield* service.status).toMatchObject({
+        current: false,
+        problems: ["service-stopped"],
+      });
+
+      commands.length = 0;
+      expect(yield* service.uninstall).toBe(true);
+      expect(commands).toEqual([
+        "whoami /groups",
+        "schtasks /End /TN T3 Code Server",
+        "schtasks /Delete /TN T3 Code Server /F",
+      ]);
+      expect((yield* service.status).installed).toBe(false);
+    }),
+  );
+
+  it.effect("refuses to register the Windows task without elevation", () =>
+    Effect.gen(function* () {
+      const { service, fs, commands, control } = yield* makeHarness("win32");
+      control.elevated = false;
+      const error = yield* service.install().pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "BootServicePrerequisiteError",
+        problem: "elevation-required",
+      });
+      expect(commands).toEqual(["whoami /groups"]);
+      expect(yield* fs.exists((yield* service.status).unitPath)).toBe(false);
     }),
   );
 

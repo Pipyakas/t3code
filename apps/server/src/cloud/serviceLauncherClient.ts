@@ -75,6 +75,8 @@ interface ServiceLauncherProcess {
     event: "message" | "disconnect",
     listener: (...args: ReadonlyArray<unknown>) => void,
   ) => void;
+  /** Starts the same graceful shutdown a SIGTERM would. */
+  readonly requestShutdown: () => void;
 }
 
 export const ServiceLauncherHostProcess = Context.Reference<ServiceLauncherProcess>(
@@ -91,6 +93,12 @@ export const ServiceLauncherHostProcess = Context.Reference<ServiceLauncherProce
       },
       off: (event, listener) => {
         process.off(event, listener);
+      },
+      // runMain interrupts the main fiber from its SIGTERM listener. Windows
+      // cannot deliver that signal to this process, so invoke the listener
+      // directly; process.kill(process.pid) would terminate without finalizers.
+      requestShutdown: () => {
+        process.emit("SIGTERM", "SIGTERM");
       },
     }),
   },
@@ -146,6 +154,15 @@ export const make = Effect.fn("cloud.service_launcher_client.make")(function* (o
   readonly currentVersion?: string;
 }) {
   const { host, context, managed } = yield* resolveStartup(options);
+  if (managed) {
+    // The launcher asks for a stop with a message where it cannot signal
+    // (Windows). Losing the launcher altogether also means stopping: nothing
+    // would supervise or restart this server any more.
+    host.on("message", (...args) => {
+      if (decodeServiceLauncherParentMessage(args[0])?.type === "shutdown") host.requestShutdown();
+    });
+    host.on("disconnect", () => host.requestShutdown());
+  }
 
   const exchange = (
     message: ServiceLauncherChildMessage,

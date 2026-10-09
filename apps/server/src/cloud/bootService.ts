@@ -35,6 +35,7 @@ import {
   serviceStateHasPendingUpdate,
   type ServiceState,
 } from "./serviceProtocol.ts";
+import { requestServiceStop } from "./serviceControl.ts";
 
 const BOOT_SERVICE_NAME = "t3code";
 const BOOT_SERVICE_UNIT_FILE = `${BOOT_SERVICE_NAME}.service`;
@@ -43,6 +44,9 @@ const BOOT_SERVICE_UNIT_FILE = `${BOOT_SERVICE_NAME}.service`;
 const BOOT_SERVICE_LAUNCHD_LABEL = "com.t3tools.t3code.service";
 const BOOT_SERVICE_PLIST_FILE = `${BOOT_SERVICE_LAUNCHD_LABEL}.plist`;
 const BOOT_SERVICE_UNIT_ENV = "T3_BOOT_SERVICE_UNIT";
+// One scheduled task per Windows user, like the per-user systemd unit.
+const BOOT_SERVICE_TASK_NAME = "T3 Code Server";
+const BOOT_SERVICE_TASK_FILE = `${BOOT_SERVICE_NAME}-service.xml`;
 /** File in the logs dir that receives the service's stdout and stderr. `t3 triage` points agents at it. */
 export const BOOT_SERVICE_LOG_FILE = "boot-service.log";
 
@@ -58,10 +62,59 @@ function quoteSystemdValue(value: string): string {
     : escaped;
 }
 
+/** How the task's executable splits its Arguments (CommandLineToArgvW rules). */
+function quoteWindowsArgument(value: string): string {
+  if (value !== "" && !/[\s"]/.test(value)) return value;
+  return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+}
+
+function splitWindowsArguments(text: string): ReadonlyArray<string> {
+  const args: string[] = [];
+  let current = "";
+  let quoted = false;
+  let started = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index]!;
+    if (character === "\\") {
+      let slashes = 0;
+      while (text[index] === "\\") {
+        slashes++;
+        index++;
+      }
+      if (text[index] === '"') {
+        current += "\\".repeat(Math.floor(slashes / 2));
+        if (slashes % 2 === 1) current += '"';
+        else quoted = !quoted;
+      } else {
+        current += "\\".repeat(slashes);
+        index--;
+      }
+      started = true;
+    } else if (character === '"') {
+      quoted = !quoted;
+      started = true;
+    } else if (!quoted && /\s/.test(character)) {
+      if (started) args.push(current);
+      current = "";
+      started = false;
+    } else {
+      current += character;
+      started = true;
+    }
+  }
+  if (started) args.push(current);
+  return args;
+}
+
+function unescapeXmlText(value: string): string {
+  return value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+}
+
 /**
- * Reads `T3CODE_HOME` back out of a rendered unit or plist. Only values this
- * file writes are expected, so a quoted systemd value is unquoted and
- * unescaped the same way `quoteSystemdValue` produced it.
+ * Reads `T3CODE_HOME` back out of a rendered unit, plist, or task. Only
+ * values this file writes are expected, so a quoted systemd value is unquoted
+ * and unescaped the same way `quoteSystemdValue` produced it, and a task's
+ * `--t3-home` argument the way `quoteWindowsArgument` produced it.
  */
 export function bootServiceBaseDirOf(contents: string): string | undefined {
   const systemd = /^Environment=T3CODE_HOME=(.*)$/m.exec(contents)?.[1];
@@ -74,8 +127,12 @@ export function bootServiceBaseDirOf(contents: string): string | undefined {
     return unquoted.replaceAll("%%", "%");
   }
   const plist = /<key>T3CODE_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(contents)?.[1];
-  if (plist !== undefined) {
-    return plist.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+  if (plist !== undefined) return unescapeXmlText(plist);
+  const task = /<Arguments>([^<]*)<\/Arguments>/.exec(contents)?.[1];
+  if (task !== undefined) {
+    const args = splitWindowsArguments(unescapeXmlText(task));
+    const flag = args.indexOf("--t3-home");
+    return flag === -1 ? undefined : args[flag + 1];
   }
   return undefined;
 }
@@ -191,6 +248,94 @@ export function renderBootServicePlist(
   ].join("\n");
 }
 
+/**
+ * Pure renderer for a Windows scheduled task. A task cannot set environment
+ * variables or redirect output, so the launcher takes the home and log file
+ * as arguments. S4U runs it as this user at boot without anyone logging in
+ * and without storing a password; the trade-off (no network credentials, no
+ * DPAPI-protected secrets) is documented in docs/user/background-service.md.
+ */
+export function renderBootServiceTask(
+  plan: BootServicePlan,
+  options: { readonly userId: string; readonly homeDir: string },
+): string {
+  const [command = "", ...args] = plan.program;
+  const taskArguments = [...args, "--t3-home", plan.baseDir, "--log-file", plan.logPath]
+    .map(quoteWindowsArgument)
+    .join(" ");
+  // ExecutionTimeLimit PT0S lifts the default 72-hour kill. Priority 4 is a
+  // normal-priority process; the task default (7) runs below normal with low
+  // I/O priority. RestartOnFailure only covers a launch that fails: the
+  // scheduler does not restart a task that exits non-zero, so the launcher
+  // restarts itself on Windows (see serviceLauncher.ts).
+  return [
+    `<?xml version="1.0" encoding="UTF-16"?>`,
+    `<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">`,
+    `  <RegistrationInfo>`,
+    `    <Description>T3 Code server</Description>`,
+    `  </RegistrationInfo>`,
+    `  <Triggers>`,
+    `    <BootTrigger>`,
+    `      <Enabled>true</Enabled>`,
+    `    </BootTrigger>`,
+    `  </Triggers>`,
+    `  <Principals>`,
+    `    <Principal id="Author">`,
+    `      <UserId>${escapeXmlText(options.userId)}</UserId>`,
+    `      <LogonType>S4U</LogonType>`,
+    `      <RunLevel>LeastPrivilege</RunLevel>`,
+    `    </Principal>`,
+    `  </Principals>`,
+    `  <Settings>`,
+    `    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>`,
+    `    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>`,
+    `    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>`,
+    `    <AllowHardTerminate>true</AllowHardTerminate>`,
+    `    <StartWhenAvailable>true</StartWhenAvailable>`,
+    `    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>`,
+    `    <AllowStartOnDemand>true</AllowStartOnDemand>`,
+    `    <Enabled>true</Enabled>`,
+    `    <Hidden>true</Hidden>`,
+    `    <RunOnlyIfIdle>false</RunOnlyIfIdle>`,
+    `    <WakeToRun>false</WakeToRun>`,
+    `    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>`,
+    `    <Priority>4</Priority>`,
+    `    <RestartOnFailure>`,
+    `      <Interval>PT1M</Interval>`,
+    `      <Count>999</Count>`,
+    `    </RestartOnFailure>`,
+    `  </Settings>`,
+    `  <Actions Context="Author">`,
+    `    <Exec>`,
+    `      <Command>${escapeXmlText(command)}</Command>`,
+    `      <Arguments>${escapeXmlText(taskArguments)}</Arguments>`,
+    `      <WorkingDirectory>${escapeXmlText(options.homeDir)}</WorkingDirectory>`,
+    `    </Exec>`,
+    `  </Actions>`,
+    `</Task>`,
+    ``,
+  ].join("\r\n");
+}
+
+/** schtasks rejects task XML that is not UTF-16. */
+function encodeUtf16Le(text: string): Uint8Array {
+  const bytes = new Uint8Array(2 + text.length * 2);
+  bytes[0] = 0xff;
+  bytes[1] = 0xfe;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    bytes[2 + index * 2] = code & 0xff;
+    bytes[3 + index * 2] = code >> 8;
+  }
+  return bytes;
+}
+
+function decodeUnitFile(bytes: Uint8Array): string {
+  return bytes[0] === 0xff && bytes[1] === 0xfe
+    ? new TextDecoder("utf-16le").decode(bytes.subarray(2))
+    : new TextDecoder().decode(bytes);
+}
+
 export interface BootServiceStep {
   readonly step: string;
   readonly command: string;
@@ -219,7 +364,7 @@ const STOP_STEP_TIMEOUT = Duration.seconds(120);
  * never branch on platform.
  */
 export interface BootServiceManager {
-  readonly kind: "systemd" | "launchd";
+  readonly kind: "systemd" | "launchd" | "taskScheduler";
   readonly unitPath: string;
   readonly render: (plan: BootServicePlan) => string;
   /** Before rewriting files, when a unit is already installed. */
@@ -381,16 +526,84 @@ function launchdManager(input: {
   };
 }
 
+function taskSchedulerManager(input: {
+  readonly path: Path.Path;
+  readonly homeDir: string;
+  readonly userId: string;
+}): BootServiceManager {
+  // The registered task lives in the scheduler; this copy is what schtasks
+  // registers from, what status compares against a fresh render, and where
+  // the served home is read back from.
+  const unitPath = input.path.join(
+    input.homeDir,
+    "AppData",
+    "Local",
+    BOOT_SERVICE_NAME,
+    BOOT_SERVICE_TASK_FILE,
+  );
+  const task = ["/TN", BOOT_SERVICE_TASK_NAME];
+  // Ending a task terminates the launcher outright, so every flow first asks
+  // it to stop over the control pipe (see make). /End only catches a launcher
+  // that did not answer; it fails harmlessly when nothing is running.
+  const end: BootServiceStep = {
+    step: "ending the scheduled task",
+    command: "schtasks",
+    args: ["/End", ...task],
+    optional: true,
+  };
+  return {
+    kind: "taskScheduler",
+    unitPath,
+    render: (plan) => renderBootServiceTask(plan, { userId: input.userId, homeDir: input.homeDir }),
+    stop: [end],
+    activate: [
+      {
+        step: "registering the scheduled task",
+        command: "schtasks",
+        args: ["/Create", ...task, "/XML", unitPath, "/F"],
+      },
+      // Start last. No administrative state write occurs after this succeeds.
+      { step: "starting the service", command: "schtasks", args: ["/Run", ...task] },
+    ],
+    restart: [
+      {
+        step: "restarting the service after a failed update",
+        command: "schtasks",
+        args: ["/Run", ...task],
+      },
+    ],
+    // Optional: a task deleted by hand must not block removing the rest.
+    deactivate: [
+      end,
+      {
+        step: "removing the scheduled task",
+        command: "schtasks",
+        args: ["/Delete", ...task, "/F"],
+        optional: true,
+      },
+    ],
+    finalize: [],
+  };
+}
+
 /** Undefined means this host cannot run the background service. */
 function selectBootServiceManager(input: {
   readonly platform: NodeJS.Platform;
   readonly homeDir: string;
   readonly uid: number | undefined;
+  readonly windowsUserId: string | undefined;
   readonly path: Path.Path;
   readonly environmentPath: string;
 }): BootServiceManager | undefined {
   if (input.homeDir === "") {
     return undefined;
+  }
+  if (input.platform === "win32" && input.windowsUserId !== undefined) {
+    return taskSchedulerManager({
+      path: input.path,
+      homeDir: input.homeDir,
+      userId: input.windowsUserId,
+    });
   }
   if (input.platform === "linux") {
     return systemdManager({ path: input.path, homeDir: input.homeDir });
@@ -411,7 +624,7 @@ export class BootServiceUnsupportedError extends Schema.TaggedError<BootServiceU
   { platform: Schema.String },
 ) {
   override get message(): string {
-    return `Background setup supports Linux with systemd and macOS with launchd; this machine reports '${this.platform}'.`;
+    return `Background setup supports Linux with systemd, macOS with launchd, and Windows with Task Scheduler; this machine reports '${this.platform}'.`;
   }
 }
 
@@ -442,6 +655,7 @@ export class BootServiceInstallError extends Schema.TaggedError<BootServiceInsta
 }
 
 const BootServiceProblem = Schema.Literals([
+  "elevation-required",
   "user-manager-unavailable",
   "linger-unavailable",
   "linger-disabled",
@@ -454,6 +668,8 @@ type BootServiceProblem = typeof BootServiceProblem.Type;
 /** These codes and recovery steps are documented in docs/user/background-service.md. */
 export function formatBootServiceProblem(problem: BootServiceProblem): string {
   switch (problem) {
+    case "elevation-required":
+      return "Registering a task that starts at boot without a login needs administrator rights. Rerun the command from an elevated terminal, or over SSH as an administrator, signed in as the account that owns your T3 Code data.";
     case "user-manager-unavailable":
       return "Cannot reach the systemd user manager. Run `systemctl --user status` in a login session for the service user. Install your distribution's systemd user-session support if it is missing; do not run T3 with sudo.";
     case "linger-unavailable":
@@ -463,7 +679,7 @@ export function formatBootServiceProblem(problem: BootServiceProblem): string {
     case "service-disabled":
       return "The service is not enabled to start automatically. Run `t3 service install` to repair it.";
     case "service-stopped":
-      return "The service is not running. Check the service log and `systemctl --user status t3code.service`, then run `t3 service install`.";
+      return "The service is not running. Check the service log (and `systemctl --user status t3code.service` on Linux), then run `t3 service install`.";
     case "restart-pending":
       return "A newer version is installed but the service is still running the previous one. Run `t3 service restart` to switch.";
   }
@@ -566,7 +782,19 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const releaseBaseUrl = Option.getOrUndefined(
     yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option),
   );
-  const homeDir = yield* Config.String("HOME").pipe(Config.withDefault(""));
+  // Windows always sets USERPROFILE; HOME only exists under shells that add it.
+  const homeDir = yield* (
+    platform === "win32"
+      ? Config.String("USERPROFILE").pipe(Config.orElse(() => Config.String("HOME")))
+      : Config.String("HOME")
+  ).pipe(Config.withDefault(""));
+  const windowsUser = yield* Config.String("USERNAME").pipe(Config.option);
+  const windowsDomain = yield* Config.String("USERDOMAIN").pipe(Config.option);
+  const windowsUserId = Option.isSome(windowsUser)
+    ? Option.isSome(windowsDomain)
+      ? `${windowsDomain.value}\\${windowsUser.value}`
+      : windowsUser.value
+    : undefined;
   const installerPath = yield* Config.String("PATH").pipe(Config.withDefault(""));
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -597,6 +825,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     platform,
     homeDir,
     uid,
+    windowsUserId,
     path,
     environmentPath,
   });
@@ -605,13 +834,15 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const statePath = path.join(input.baseDir, "runtime", SERVICE_STATE_FILE);
   const restartPendingPath = path.join(input.baseDir, "runtime", SERVICE_RESTART_PENDING_FILE);
   const runtimePaths = pinnedRuntimePaths(path, input.baseDir, input.cliVersion, platform);
-  const writeDurably = (filePath: string, contents: string) =>
+  const writeDurably = (filePath: string, contents: string | Uint8Array) =>
     Effect.scoped(
       Effect.gen(function* () {
         const directory = path.dirname(filePath);
         yield* fs.makeDirectory(directory, { recursive: true });
         const tempPath = yield* fs.makeTempFileScoped({ directory, prefix: ".service-write-" });
-        yield* fs.writeFileString(tempPath, contents, { mode: 0o600 });
+        yield* typeof contents === "string"
+          ? fs.writeFileString(tempPath, contents, { mode: 0o600 })
+          : fs.writeFile(tempPath, contents, { mode: 0o600 });
         // Opened read-write: Windows refuses to flush a handle without write access.
         yield* (yield* fs.open(tempPath, { flag: "r+" })).sync;
         yield* fs.rename(tempPath, filePath);
@@ -632,6 +863,10 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     logPath,
     unitPath,
   };
+
+  const readUnit = (filePath: string) => fs.readFile(filePath).pipe(Effect.map(decodeUnitFile));
+  const encodeUnit = (manager: BootServiceManager, contents: string) =>
+    manager.kind === "taskScheduler" ? encodeUtf16Le(contents) : contents;
 
   const requireManager = Effect.suspend(() =>
     detectedManager === undefined
@@ -746,6 +981,70 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     if (remaining[0]) return yield* new BootServicePrerequisiteError({ problem: remaining[0] });
   });
 
+  // S4U tasks need an elevated token to register. Checked before anything
+  // changes, like lingering on Linux.
+  const requireTaskSchedulerPrerequisites = Effect.gen(function* () {
+    const groups = yield* probe("whoami", ["/groups"]);
+    const elevated =
+      Option.isSome(groups) &&
+      groups.value.code === 0 &&
+      /S-1-16-(12288|16384)\b/.test(groups.value.stdout);
+    if (!elevated)
+      return yield* new BootServicePrerequisiteError({ problem: "elevation-required" });
+  });
+
+  const requirePrerequisites = (manager: BootServiceManager) => {
+    switch (manager.kind) {
+      case "systemd":
+        return requireSystemdPrerequisites.pipe(Effect.tapError(logFailure));
+      case "taskScheduler":
+        return requireTaskSchedulerPrerequisites.pipe(Effect.tapError(logFailure));
+      case "launchd":
+        return Effect.void;
+    }
+  };
+
+  const readTaskSchedulerProblems = Effect.gen(function* () {
+    // Get-ScheduledTask reports State as an enum name, so this does not
+    // depend on the display language the way schtasks /Query output does.
+    const state = yield* runner
+      .run({
+        command: "powershell.exe",
+        args: [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `(Get-ScheduledTask -TaskName '${BOOT_SERVICE_TASK_NAME}' -ErrorAction Stop).State`,
+        ],
+        timeout: Duration.seconds(30),
+      })
+      .pipe(Effect.option);
+    const value = Option.isSome(state) && state.value.code === 0 ? state.value.stdout.trim() : "";
+    const problems: BootServiceProblem[] = [];
+    if (value === "" || value === "Disabled") problems.push("service-disabled");
+    else if (value !== "Running") problems.push("service-stopped");
+    return problems;
+  });
+
+  /**
+   * Stops the launcher serving `baseDir`. On Windows it is asked over the
+   * control pipe first, so its server shuts down cleanly; the manager's steps
+   * then make sure, and are all that runs elsewhere.
+   */
+  const stopService = (
+    manager: BootServiceManager,
+    steps: ReadonlyArray<BootServiceStep>,
+    baseDir: string,
+  ) =>
+    (manager.kind === "taskScheduler"
+      ? Effect.tryPromise({
+          try: () => requestServiceStop(baseDir, Duration.toMillis(STOP_STEP_TIMEOUT)),
+          catch: (cause) =>
+            new BootServiceCommandError({ step: "asking the service to stop", cause }),
+        }).pipe(Effect.tapError(logFailure), Effect.ignore)
+      : Effect.void
+    ).pipe(Effect.andThen(runSteps(steps)));
+
   const install = Effect.fn("cloud.boot_service.install")(function* (options?: {
     readonly allowDowngrade?: boolean;
     readonly start?: boolean;
@@ -756,9 +1055,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
       .pipe(Effect.mapError((cause) => new BootServiceInstallError({ cause })));
 
     // A permissions failure must not leave a partial install or stop a working server.
-    if (manager.kind === "systemd") {
-      yield* requireSystemdPrerequisites.pipe(Effect.tapError(logFailure));
-    }
+    yield* requirePrerequisites(manager);
 
     // Prepare every immutable artifact before stopping the installed unit.
     yield* ensurePinnedRuntimeInstalled({
@@ -825,7 +1122,11 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     // normally serialises against the launcher is skipped on purpose.
     const start = options?.start !== false;
     if (installed && start) {
-      yield* runSteps(manager.stop);
+      const installedBaseDir = yield* readUnit(unitPath).pipe(
+        Effect.map(bootServiceBaseDirOf),
+        Effect.orElseSucceed(() => undefined),
+      );
+      yield* stopService(manager, manager.stop, installedBaseDir ?? input.baseDir);
     }
 
     yield* Effect.gen(function* () {
@@ -884,7 +1185,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
           return yield* new BootServiceUpdatePendingError();
         }
       }
-      yield* writeDurably(unitPath, manager.render(plan));
+      yield* writeDurably(unitPath, encodeUnit(manager, manager.render(plan)));
 
       if (start) {
         yield* runSteps(manager.activate);
@@ -903,7 +1204,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
 
   const restart: BootService["Service"]["restart"] = Effect.gen(function* () {
     const manager = yield* requireManager;
-    const unit = yield* fs.readFileString(unitPath).pipe(Effect.option);
+    const unit = yield* readUnit(unitPath).pipe(Effect.option);
     if (Option.isNone(unit)) return false;
     const installedBaseDir = bootServiceBaseDirOf(unit.value);
     if (
@@ -912,7 +1213,8 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     ) {
       return false;
     }
-    yield* runSteps(manager.stop);
+    if (manager.kind === "taskScheduler") yield* requirePrerequisites(manager);
+    yield* stopService(manager, manager.stop, installedBaseDir);
     yield* runSteps(manager.activate).pipe(
       // Same recovery as a failed repair: a service that was running should
       // not be left stopped because daemon-reload or enable failed.
@@ -929,13 +1231,14 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
 
   const uninstall: BootService["Service"]["uninstall"] = Effect.gen(function* () {
     const manager = yield* requireManager;
-    if (
-      !(yield* fs
-        .exists(unitPath)
-        .pipe(Effect.mapError((cause) => new BootServiceInstallError({ cause }))))
-    )
-      return false;
-    yield* runSteps(manager.deactivate);
+    const unit = yield* readUnit(unitPath).pipe(Effect.option);
+    if (Option.isNone(unit)) return false;
+    if (manager.kind === "taskScheduler") yield* requirePrerequisites(manager);
+    yield* stopService(
+      manager,
+      manager.deactivate,
+      bootServiceBaseDirOf(unit.value) ?? input.baseDir,
+    );
     yield* fs
       .remove(unitPath)
       .pipe(Effect.mapError((cause) => new BootServiceInstallError({ cause })));
@@ -951,7 +1254,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
       return { supported: true, installed: false, current: false, unitPath, logPath };
     }
     const [unit, runtimeEntryExists, runtimeSentinel, stateText] = yield* Effect.all([
-      fs.readFileString(unitPath),
+      readUnit(unitPath),
       fs.exists(runtimePaths.entryPath),
       fs.readFileString(runtimePaths.sentinelPath).pipe(Effect.option),
       fs.readFileString(statePath).pipe(Effect.option),
@@ -966,7 +1269,11 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
         ? contents.replace(/(<key>PATH<\/key>\n\s*<string>)[^<]*(<\/string>)/, "$1$2")
         : contents;
     const problems: BootServiceProblem[] =
-      detectedManager.kind === "systemd" ? [...(yield* readSystemdProblems(true))] : [];
+      detectedManager.kind === "systemd"
+        ? [...(yield* readSystemdProblems(true))]
+        : detectedManager.kind === "taskScheduler"
+          ? yield* readTaskSchedulerProblems
+          : [];
     if (yield* fs.exists(restartPendingPath)) problems.push("restart-pending");
     return {
       supported: true,
