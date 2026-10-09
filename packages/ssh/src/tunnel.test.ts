@@ -330,6 +330,65 @@ describe("ssh tunnel scripts", () => {
     }).pipe(Effect.provide(layerProcess));
   });
 
+  it.effect("falls back to PowerShell on a Windows host and remembers it", () => {
+    const target = {
+      alias: "winbox",
+      hostname: "winbox.example.com",
+      username: "julius",
+      port: 22,
+    } as const;
+    const remoteCommands: Array<string> = [];
+    const spawner = ChildProcessSpawner.make((command) =>
+      Effect.sync(() => {
+        const args = commandArgs(command);
+        const remote = args.includes("powershell.exe")
+          ? "powershell.exe"
+          : args.includes("cmd.exe")
+            ? "cmd.exe"
+            : "sh";
+        remoteCommands.push(remote);
+        if (remote === "sh") {
+          // What OpenSSH for Windows reports for a POSIX command.
+          return {
+            ...makeSuccessfulProcess(""),
+            exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(1)),
+          };
+        }
+        return makeSuccessfulProcess(
+          remote === "cmd.exe"
+            ? "\r\nMicrosoft Windows [Version 10.0.26100.9168]\r\n"
+            : '{"remotePort":3773,"serverKind":"external"}\r\n',
+        );
+      }),
+    );
+    const layerProcess = Layer.merge(
+      NodeServices.layer,
+      Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    );
+
+    return Effect.gen(function* () {
+      const result = yield* SshTunnel.launchOrReuseRemoteServer(target, undefined, ARCHIVE);
+      assert.deepEqual(result, { remotePort: 3773, remoteServerKind: "external" });
+      yield* SshTunnel.launchOrReuseRemoteServer(target, undefined, ARCHIVE);
+      assert.deepEqual(remoteCommands, ["sh", "cmd.exe", "powershell.exe", "powershell.exe"]);
+    }).pipe(Effect.provide(layerProcess));
+  });
+
+  it("fills every placeholder in the Windows scripts", () => {
+    for (const script of [
+      SshTunnel.buildWindowsRemoteLaunchScript("0123456789abcdef", ARCHIVE),
+      SshTunnel.buildWindowsRemotePairingScript("0123456789abcdef", ARCHIVE),
+      SshTunnel.buildWindowsRemoteStopScript("0123456789abcdef"),
+    ]) {
+      assert.notInclude(script, "@@");
+      assert.include(script, "ssh-launch\\0123456789abcdef");
+    }
+    assert.include(
+      SshTunnel.buildWindowsRemoteLaunchScript("0123456789abcdef", ARCHIVE),
+      "$version = '1.2.3-preview.20260911.4'",
+    );
+  });
+
   it.effect("allows cold remote launches to exceed the default SSH command timeout", () => {
     const target = {
       alias: "devbox",
