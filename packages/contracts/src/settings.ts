@@ -1575,6 +1575,7 @@ export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>
     settingsPath: Schema.String,
     operation: ServerSettingsOperation,
     providerInstanceId: Schema.optional(Schema.String),
+    detail: Schema.optional(Schema.String),
     environmentVariable: Schema.optional(Schema.String),
     // Validation failures (e.g. a create colliding with an existing
     // instance) originate without an upstream defect.
@@ -1582,6 +1583,7 @@ export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>
   },
 ) {
   override get message(): string {
+    if (this.detail !== undefined) return this.detail;
     const provider =
       this.providerInstanceId === undefined ? "" : ` for provider ${this.providerInstanceId}`;
     const variable =

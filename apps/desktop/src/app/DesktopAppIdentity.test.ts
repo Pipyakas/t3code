@@ -45,6 +45,7 @@ const layerElectronApp = (calls: ElectronAppCalls) =>
     systemLocale: Effect.succeed("en-US"),
     whenReady: Effect.void,
     quit: Effect.void,
+    requestSingleInstanceLock: Effect.succeed(true),
     exit: () => Effect.void,
     relaunch: () => Effect.void,
     setPath: () => Effect.void,

@@ -15,7 +15,6 @@ import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as Schedule from "effect/Schedule";
@@ -77,9 +76,6 @@ import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as NativeAppIconResolver from "./assets/NativeAppIconResolver.ts";
-import * as AntigravityInstallation from "./provider/AntigravityInstallation.ts";
-import * as CodexInstallation from "./provider/CodexInstallation.ts";
-import * as ProviderInstanceRegistry from "./provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapterRegistry from "./orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
 import * as ProviderUsageLimitsIngestion from "./provider/ProviderUsageLimitsIngestion.ts";
@@ -118,15 +114,7 @@ import * as RelayDeliveryProof from "./scheduledTasks/RelayDeliveryProof.ts";
 import * as HeldHooksWaker from "./relay/HeldHooksWaker.ts";
 import * as McpOAuth from "./auth/McpOAuth.ts";
 import * as McpOAuthHttp from "./auth/mcpOAuthHttp.ts";
-import {
-  relayHookBaseUrl,
-  ScheduledTaskWebhookOrigin,
-} from "./scheduledTasks/ScheduledTaskService.ts";
-import {
-  CLOUD_ENDPOINT_RUNTIME_CONFIG,
-  decodeRuntimeConfig,
-  RELAY_URL_SECRET,
-} from "./cloud/config.ts";
+import { ScheduledTaskWebhookOrigin } from "./scheduledTasks/ScheduledTaskService.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as CloudHttp from "./cloud/http.ts";
 import * as CloudLink from "./cloud/CloudLink.ts";
@@ -171,7 +159,6 @@ import {
 import * as OrchestrationHttp from "./orchestration-v2/http.ts";
 import * as ProjectHttp from "./project/http.ts";
 import * as NetService from "@t3tools/shared/Net";
-import * as RelayClient from "@t3tools/shared/relayClient";
 import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
 import * as ServerActivation from "./serverActivation.ts";
 
@@ -236,13 +223,6 @@ const layerResourceDiagnostics = Layer.mergeAll(
   layerResourceTelemetry,
   ProcessDiagnostics.layer.pipe(Layer.provide(layerResourceTelemetry)),
   ProcessResourceMonitor.layer.pipe(Layer.provide(layerResourceTelemetry)),
-);
-
-const layerRelayClient = Layer.unwrap(
-  Effect.gen(function* () {
-    const config = yield* ServerConfig.ServerConfig;
-    return RelayClient.layerCloudflared({ baseDir: config.baseDir });
-  }),
 );
 
 const layerHttpServer = Layer.unwrap(
@@ -430,38 +410,13 @@ const layerAuth = EnvironmentAuth.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
 );
 
-const layerCloudManagedEndpointRuntime = Layer.mergeAll(
-  layerRelayClient,
-  CloudManagedEndpointRuntime.layer.pipe(
-    Layer.provide(ServerSecretStore.layer),
-    Layer.provide(layerRelayClient),
-  ),
-);
+const layerCloudManagedEndpointRuntime = CloudManagedEndpointRuntime.layer;
 
 // Webhook URLs go through the relay only when the managed tunnel it forwards
 // to is configured; otherwise clients show the environment-relative path.
-const layerScheduledTaskWebhookOrigin = Layer.effect(
+const layerScheduledTaskWebhookOrigin = Layer.succeed(
   ScheduledTaskWebhookOrigin,
-  Effect.gen(function* () {
-    const secrets = yield* ServerSecretStore.ServerSecretStore;
-    // The reference holds an effect so each read sees the current link state.
-    return Effect.gen(function* () {
-      const [relayUrl, tunnelConfig] = yield* Effect.all([
-        secrets.get(RELAY_URL_SECRET),
-        secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG),
-      ]).pipe(Effect.orElseSucceed(() => [Option.none(), Option.none()] as const));
-      if (Option.isNone(relayUrl) || Option.isNone(tunnelConfig)) {
-        return { relayHookBaseUrl: null };
-      }
-      const config = decodeRuntimeConfig(new TextDecoder().decode(tunnelConfig.value));
-      return {
-        relayHookBaseUrl: relayHookBaseUrl({
-          relayUrl: new TextDecoder().decode(relayUrl.value),
-          tunnelName: Option.isSome(config) ? config.value.tunnelName : undefined,
-        }),
-      };
-    });
-  }),
+  Effect.succeed({ relayHookBaseUrl: null }),
 );
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
@@ -495,38 +450,6 @@ const layerThreadPullRequestWorker = Layer.effectDiscard(
   ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(layerPullRequestService));
 
-const layerProviderInstallationRefresh = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const antigravity = yield* AntigravityInstallation.AntigravityInstallation;
-    const codex = yield* CodexInstallation.CodexInstallation;
-    const instances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
-    const providers = yield* ProviderRegistry.ProviderRegistry;
-    yield* Stream.merge(
-      antigravity.changes.pipe(
-        Stream.changesWith((a, b) => a.installedVersion === b.installedVersion),
-        Stream.drop(1),
-      ),
-      codex.changes.pipe(
-        Stream.changesWith((a, b) => a.installedVersion === b.installedVersion),
-        Stream.drop(1),
-      ),
-    ).pipe(
-      Stream.runForEach((state) =>
-        instances.listInstances.pipe(
-          Effect.flatMap((entries) =>
-            Effect.forEach(
-              entries.filter((instance) => instance.driverKind === state.driver),
-              (instance) => providers.refreshInstance(instance.instanceId),
-              { discard: true },
-            ),
-          ),
-        ),
-      ),
-      Effect.forkScoped,
-    );
-  }),
-);
-
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   AgentAwarenessRelay.layer,
   // Asks T3 Connect to deliver webhooks it held while this environment was offline.
@@ -559,7 +482,6 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // Subscribes to `account.rate-limits.updated` so usage bars track live
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestion.layer,
-  layerProviderInstallationRefresh,
   ReplayMarkers.layer,
 ).pipe(
   // Core Services
@@ -586,12 +508,6 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // `providerInstances` hydration merges `settings.providers.<kind>`
   // with explicit `providerInstances` entries on boot.
   Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
-  Layer.provideMerge(
-    Layer.mergeAll(
-      AntigravityInstallation.AntigravityInstallation.layer,
-      CodexInstallation.CodexInstallation.layer,
-    ),
-  ),
 );
 
 const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(

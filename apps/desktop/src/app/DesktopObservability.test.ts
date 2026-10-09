@@ -385,7 +385,7 @@ describe("DesktopObservability", () => {
     ),
   );
 
-  it.effect("exports main process log records to the configured logs endpoint", () => {
+  it.effect("keeps logs local even with an explicitly configured endpoint", () => {
     const requests: Array<ExportedRequest> = [];
     return Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -408,15 +408,7 @@ describe("DesktopObservability", () => {
         ),
       );
 
-      assert.lengthOf(requests, 1);
-      const [request] = requests;
-      assert.strictEqual(request?.url, "https://collector.example.com/v1/logs");
-      assert.include(request?.body ?? "", "desktop log export");
-      assert.include(request?.body ?? "", "service.runtime");
-      assert.strictEqual(request?.headers["x-scope"], "desktop");
-
-      // The log record is the export now, so the same message must not also
-      // ride along as an event on the span.
+      assert.lengthOf(requests, 0);
       const record = (yield* fileSystem.readFileString(tracePath))
         .trim()
         .split("\n")
@@ -424,14 +416,14 @@ describe("DesktopObservability", () => {
         .map((line) => decodeTraceRecordLine(line))
         .find((entry) => entry.name === "desktop-log-export-test");
       assert.notEqual(record, undefined);
-      assert.lengthOf(record?.events ?? [], 0);
+      assert.isAbove(record?.events.length ?? 0, 0);
     }).pipe(
       Effect.scoped,
       Effect.provide(Layer.mergeAll(NodeServices.layer, layerCollector(requests), layerEmptyEnv)),
     );
   });
 
-  it.effect("exports to an OTEL endpoint over Settings, with its own headers and protocol", () => {
+  it.effect("ignores both OTEL environment endpoints and persisted Settings", () => {
     const requests: Array<ExportedRequest> = [];
     return Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -451,12 +443,7 @@ describe("DesktopObservability", () => {
         ),
       );
 
-      assert.lengthOf(requests, 1);
-      const [request] = requests;
-      assert.strictEqual(request?.url, "https://collector.example.com/v1/logs");
-      assert.strictEqual(request?.headers["x-otel"], "desktop");
-      assert.strictEqual(request?.headers["x-scope"], undefined);
-      assert.strictEqual(request?.headers["content-type"], "application/json");
+      assert.lengthOf(requests, 0);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -477,7 +464,7 @@ describe("DesktopObservability", () => {
     );
   });
 
-  it.effect("keeps its service name while OTEL resource attributes add dimensions", () => {
+  it.effect("does not export configured OTEL resource attributes", () => {
     const requests: Array<ExportedRequest> = [];
     return Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -494,12 +481,7 @@ describe("DesktopObservability", () => {
         ),
       );
 
-      assert.lengthOf(requests, 1);
-      const body = requests[0]?.body ?? "";
-      assert.include(body, '"stringValue":"t3code-desktop"');
-      assert.include(body, "deployment.environment.name");
-      assert.include(body, '"key":"service.namespace","value":{"stringValue":"t3code"}');
-      assert.notInclude(body, "renamed");
+      assert.lengthOf(requests, 0);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -560,7 +542,7 @@ describe("DesktopObservability", () => {
     );
   });
 
-  it.effect("exports kill switch warnings through the configured logger", () => {
+  it.effect("never exports even when OTEL_SDK_DISABLED does not disable it", () => {
     const requests: Array<ExportedRequest> = [];
     return Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -577,7 +559,7 @@ describe("DesktopObservability", () => {
         ),
       );
 
-      assert.include(requests[0]?.body ?? "", "OTEL_SDK_DISABLED=1 was read as false");
+      assert.lengthOf(requests, 0);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -590,7 +572,7 @@ describe("DesktopObservability", () => {
     );
   });
 
-  it.effect("reads every signal endpoint from Settings when the environment names none", () => {
+  it.effect("ignores every persisted signal endpoint", () => {
     const requests: Array<ExportedRequest> = [];
     return Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -613,18 +595,7 @@ describe("DesktopObservability", () => {
         ),
       );
 
-      assert.deepEqual(requests.map((request) => request.url).toSorted(), [
-        "https://settings.example.com/v1/logs",
-        "https://settings.example.com/v1/traces",
-      ]);
-      assert.include(
-        requests.find((request) => request.url.endsWith("/v1/logs"))?.body ?? "",
-        "desktop log export from settings",
-      );
-      assert.include(
-        requests.find((request) => request.url.endsWith("/v1/traces"))?.body ?? "",
-        "desktop-settings-export-test",
-      );
+      assert.lengthOf(requests, 0);
     }).pipe(
       Effect.scoped,
       Effect.provide(Layer.mergeAll(NodeServices.layer, layerCollector(requests), layerEmptyEnv)),

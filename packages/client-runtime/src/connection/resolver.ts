@@ -283,7 +283,12 @@ export const make = Effect.gen(function* () {
         case "BearerConnectionTarget":
           return bearer({ ...entry, target });
         case "RelayConnectionTarget":
-          return relay(target);
+          return Effect.fail(
+            new ConnectionBlockedError({
+              reason: "configuration",
+              detail: "T3 Connect is removed in this build. Use a direct connection instead.",
+            }),
+          );
         case "SshConnectionTarget":
           return ssh({ ...entry, target });
       }

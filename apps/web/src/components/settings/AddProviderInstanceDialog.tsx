@@ -79,7 +79,7 @@ function deriveInstanceId(driver: ProviderDriverKind, label: string): string {
 }
 
 const INSTANCE_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
+const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 const ACP_REGISTRY_DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const DEFAULT_DRIVER_OPTION = DRIVER_OPTIONS[0]!;
 const EMPTY_CONFIG_DRAFT: Record<string, unknown> = {};

@@ -1,13 +1,7 @@
 import {
   AcpRegistrySettings,
-  AntigravitySettings,
   ClaudeSettings,
-  CodexSettings,
-  CursorSettings,
-  GrokSettings,
   OpenCodeSettings,
-  PiSettings,
-  MuseSettings,
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import type * as Schema from "effect/Schema";
@@ -49,54 +43,14 @@ export interface ProviderEnvironmentFieldDefinition {
 
 const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
   {
-    value: ProviderDriverKind.make("codex"),
-    label: "Codex",
-    settingsSchema: CodexSettings,
-  },
-  {
     value: ProviderDriverKind.make("claudeAgent"),
     label: "Claude",
     settingsSchema: ClaudeSettings,
   },
   {
-    value: ProviderDriverKind.make("cursor"),
-    label: "Cursor",
-    settingsSchema: CursorSettings,
-    environmentFields: [
-      {
-        name: "CURSOR_API_KEY",
-        label: "Cursor API key",
-        description: "Optional. Overrides browser sign-in for this provider.",
-        placeholder: "Paste API key",
-        sensitive: true,
-      },
-    ],
-  },
-  {
-    value: ProviderDriverKind.make("grok"),
-    label: "Grok",
-    settingsSchema: GrokSettings,
-  },
-  {
     value: ProviderDriverKind.make("opencode"),
     label: "OpenCode",
     settingsSchema: OpenCodeSettings,
-  },
-  {
-    value: ProviderDriverKind.make("antigravity"),
-    label: "Antigravity",
-    settingsSchema: AntigravitySettings,
-  },
-  {
-    value: ProviderDriverKind.make("muse"),
-    label: "Muse Code",
-    settingsSchema: MuseSettings,
-    badgeLabel: "Beta",
-  },
-  {
-    value: ProviderDriverKind.make("pi"),
-    label: "Pi",
-    settingsSchema: PiSettings,
   },
   {
     value: ProviderDriverKind.make("acpRegistry"),

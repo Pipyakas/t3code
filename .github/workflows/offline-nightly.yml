@@ -1,0 +1,178 @@
+name: Offline nightly
+
+# Keeps this fork's default branch merged with upstream main and publishes an
+# unsigned Windows x64 nightly that installed copies auto-update from.
+#
+# Setup (once):
+#   - Repository secret SYNC_TOKEN: a fine-grained PAT for this repository with
+#     Contents: read/write and Workflows: read/write. GITHUB_TOKEN cannot push
+#     merges that touch upstream's .github/workflows files.
+#   - Enable Actions on the fork. Scheduled runs only fire on the default branch.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Build even when upstream has no new commits"
+        type: boolean
+        default: false
+
+concurrency:
+  group: offline-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+env:
+  UPSTREAM_REPO: pingdotgg/t3code
+  UPSTREAM_BRANCH: main
+
+jobs:
+  sync:
+    name: Merge upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.merge.outputs.sha }}
+      changed: ${{ steps.merge.outputs.changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - id: merge
+        name: Merge upstream main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+
+          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo "Already up to date with upstream."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          elif git merge --no-edit FETCH_HEAD -m "chore: merge upstream ${UPSTREAM_BRANCH}"; then
+            git push origin HEAD
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            conflicts="$(git diff --name-only --diff-filter=U | sed 's/^/- /')"
+            git merge --abort
+            title="Upstream merge conflict"
+            body="Merging \`${UPSTREAM_REPO}@$(git rev-parse --short FETCH_HEAD)\` into \`$(git rev-parse --abbrev-ref HEAD)\` conflicts. Resolve locally with \`git fetch upstream && git merge upstream/${UPSTREAM_BRANCH}\` and push.
+
+          ${conflicts}
+
+          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            existing="$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')"
+            if [[ -n "$existing" ]]; then
+              gh issue comment "$existing" --body "$body"
+            else
+              gh issue create --title "$title" --body "$body"
+            fi
+            echo "::error::Upstream merge conflicts; see the opened issue."
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Upstream's workflows target its own runners, secrets, and services.
+      # Merges keep bringing them back, so disable everything but this file.
+      - name: Disable upstream workflows
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELF: .github/workflows/offline-nightly.yml
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows" --paginate \
+            --jq ".workflows[] | select(.state == \"active\" and .path != \"$SELF\") | .id" |
+          while read -r id; do
+            gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${id}/disable"
+          done
+
+  build:
+    name: Build Windows x64
+    needs: [sync]
+    if: needs.sync.outputs.changed == 'true' || inputs.force_build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.sync.outputs.sha }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Spectre-mitigated MSVC libs
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $proc = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
+
+      - id: meta
+        name: Resolve nightly version
+        shell: bash
+        run: |
+          node scripts/resolve-nightly-release.ts \
+            --date "$(date -u +%Y%m%d)" \
+            --run-number "${{ github.run_number }}" \
+            --sha "${{ needs.sync.outputs.sha }}" \
+            --github-output
+
+      - name: Build installer
+        shell: bash
+        env:
+          T3CODE_DESKTOP_SIGNED: "false"
+          T3CODE_DESKTOP_WSL_RUNTIME: ""
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+        run: |
+          node scripts/update-release-package-versions.ts "${{ steps.meta.outputs.version }}"
+          node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 \
+            --build-version "${{ steps.meta.outputs.version }}" --verbose
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ needs.sync.outputs.sha }}
+          name: ${{ steps.meta.outputs.name }}
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/nightly.yml
+          fail_on_unmatched_files: true

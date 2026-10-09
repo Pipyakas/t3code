@@ -1,6 +1,5 @@
 import {
   CommandId,
-  DEFAULT_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_SERVER_SETTINGS,
   type ModelSelection,
@@ -44,7 +43,6 @@ import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import { forkParked, forkParkedFiber } from "./serverActivation.ts";
-import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import {
@@ -143,40 +141,9 @@ export const makeCommandGate = Effect.gen(function* () {
   } satisfies CommandGate;
 });
 
-const recordStartupHeartbeat = Effect.gen(function* () {
-  const analytics = yield* AnalyticsService.AnalyticsService;
-  const projects = yield* ProjectService.ProjectService;
-  const threads = yield* ThreadManagement.ThreadManagementService;
-
-  const { threadCount, projectCount } = yield* Effect.all({
-    projects: projects.snapshot,
-    threads: threads.getShellSnapshot(),
-  }).pipe(
-    Effect.map(({ projects: projectSnapshot, threads: shellSnapshot }) => ({
-      projectCount: projectSnapshot.projects.length,
-      threadCount: shellSnapshot.threads.length + shellSnapshot.archivedThreads.length,
-    })),
-    Effect.catch((cause) =>
-      Effect.logWarning("failed to gather V2 startup counts for telemetry", {
-        cause,
-      }).pipe(
-        Effect.as({
-          threadCount: 0,
-          projectCount: 0,
-        }),
-      ),
-    ),
-  );
-
-  yield* analytics.record("server.boot.heartbeat", {
-    threadCount,
-    projectCount,
-  });
-});
-
 export const getAutoBootstrapThreadModelSelection = (): ModelSelection => ({
-  instanceId: ProviderInstanceId.make("codex"),
-  model: DEFAULT_MODEL,
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-fable-5-1",
 });
 
 interface AutoBootstrapWelcomeTargets {
@@ -579,12 +546,6 @@ const make = (options?: StartupOptions) =>
 
       yield* forkParked(
         Effect.gen(function* () {
-          yield* Effect.logDebug("startup phase: recording startup heartbeat");
-          yield* recordStartupHeartbeat.pipe(
-            Effect.annotateSpans({ "startup.phase": "heartbeat.record" }),
-            Effect.withSpan("server.startup.heartbeat.record"),
-            Effect.ignoreCause({ log: true }),
-          );
           if (serverConfig.startupPresentation === "headless") {
             yield* Effect.logDebug("startup phase: headless access info");
             const accessInfo = yield* issueHeadlessServeAccessInfo();

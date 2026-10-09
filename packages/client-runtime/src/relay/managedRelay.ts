@@ -433,7 +433,8 @@ function disabledManagedRelayClient(relayUrl: string): ManagedRelayClient["Servi
 export const make = Effect.fn("ManagedRelayClient.make")(function* (
   options: ManagedRelayClientLayerOptions,
 ) {
-  const relayUrl = normalizeSecureRelayUrl(options.relayUrl);
+  // No configured or persisted URL can enable T3 Connect in this build.
+  const relayUrl = normalizeSecureRelayUrl("");
   if (relayUrl === null) {
     return disabledManagedRelayClient(options.relayUrl);
   }

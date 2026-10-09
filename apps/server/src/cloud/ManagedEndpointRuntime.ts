@@ -457,4 +457,10 @@ export const make = Effect.gen(function* () {
   return runtime;
 });
 
-export const layer = Layer.effect(CloudManagedEndpointRuntime, make);
+export const layer = Layer.succeed(CloudManagedEndpointRuntime, {
+  applyConfig: () => Effect.succeed({ status: "disabled" }),
+  recoveryRequests: Stream.empty,
+  requestRecovery: () => Effect.void,
+  tunnelConnected: Stream.empty,
+  withLinkStateLock: (effect) => effect,
+});

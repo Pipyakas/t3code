@@ -24,6 +24,8 @@ import {
   type UsageLimitSourceConfig,
   type ProviderInstanceMutation,
   ProviderDriverKind,
+  isSupportedProviderDriverKind,
+  unsupportedProviderDriverDetail,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
   ResponseStreamingMode,
@@ -236,6 +238,16 @@ function ensureProviderInstanceMutationAllowed(
   mutation: ProviderInstanceMutation,
   settingsPath: string,
 ): Effect.Effect<void, ServerSettingsError> {
+  if (mutation.operation !== "remove" && !isSupportedProviderDriverKind(mutation.instance.driver)) {
+    return Effect.fail(
+      new ServerSettingsError({
+        settingsPath,
+        operation: "create-provider-instance",
+        providerInstanceId: mutation.instanceId,
+        detail: unsupportedProviderDriverDetail(mutation.instance.driver),
+      }),
+    );
+  }
   if (
     mutation.operation === "create" &&
     settings.providerInstances[mutation.instanceId] !== undefined

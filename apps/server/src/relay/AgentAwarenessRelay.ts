@@ -25,6 +25,7 @@ import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import { hasCloudPublicConfig } from "../cloud/publicConfig.ts";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -366,6 +367,8 @@ export function resolveAgentAwarenessRelayActiveThreadIds(input: {
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
+  // Relay publishing (including relay-based push) is absent from this build.
+  if (!hasCloudPublicConfig) return disabledRelay;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
   const threads = yield* ThreadManagement.ThreadManagementService;
@@ -846,4 +849,10 @@ export const make = Effect.gen(function* () {
   });
 });
 
+const disabledRelay = AgentAwarenessRelay.of({
+  publishThread: () => Effect.void,
+  drain: Effect.void,
+  requestCatchUp: () => Effect.void,
+  start: () => Effect.void,
+});
 export const layer = Layer.effect(AgentAwarenessRelay, make);

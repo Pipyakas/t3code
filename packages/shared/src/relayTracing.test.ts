@@ -24,7 +24,7 @@ function collectingTracer(spans: Array<string>): Tracer.Tracer {
 }
 
 describe("withRelayClientTracing", () => {
-  it.effect("uses the product tracer only for relay operations", () =>
+  it.effect("ignores a supplied product tracer and preserves local tracing", () =>
     Effect.gen(function* () {
       const userSpans: Array<string> = [];
       const productSpans: Array<string> = [];
@@ -39,8 +39,8 @@ describe("withRelayClientTracing", () => {
         Effect.withTracer(userTracer),
       );
 
-      expect(userSpans).toEqual(["user.operation"]);
-      expect(productSpans).toEqual(["relay.operation"]);
+      expect(userSpans).toEqual(["user.operation", "relay.operation"]);
+      expect(productSpans).toEqual([]);
     }),
   );
 
@@ -59,7 +59,7 @@ describe("withRelayClientTracing", () => {
     }),
   );
 
-  it.effect("preserves nested error causes in exported relay spans", () => {
+  it.effect("never exports relay spans even with endpoint and credentials configured", () => {
     const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
     const layerHttpClient = FetchHttpClient.layer.pipe(
       Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchFn)),
@@ -90,12 +90,7 @@ describe("withRelayClientTracing", () => {
       Effect.scoped,
       Effect.andThen(
         Effect.sync(() => {
-          expect(fetchFn).toHaveBeenCalledOnce();
-          const payload = new TextDecoder().decode(fetchFn.mock.calls[0]?.[1]?.body as Uint8Array);
-          expect(payload).toContain("relay request failed");
-          expect(payload).toContain("relay socket closed");
-          expect(payload).toContain('"key":"service.name","value":{"stringValue":"relay-test"}');
-          expect(payload).toContain('"key":"service.namespace","value":{"stringValue":"t3code"}');
+          expect(fetchFn).not.toHaveBeenCalled();
         }),
       ),
     );
@@ -125,11 +120,13 @@ describe("withLocalTracing", () => {
         Effect.withTracer(localTracer),
       );
 
-      expect(productSpans).toEqual([
+      expect(productSpans).toEqual([]);
+      expect(localSpans).toEqual([
         "relay.connection.nested",
+        "sql.execute",
+        "ServerSecretStore.get",
         "environment.orchestration.threadSnapshot",
       ]);
-      expect(localSpans).toEqual(["sql.execute", "ServerSecretStore.get"]);
     }),
   );
 

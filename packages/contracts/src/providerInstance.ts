@@ -75,6 +75,31 @@ export const isProviderDriverKind = (value: unknown): value is ProviderDriverKin
   isProviderDriverKindValue(value);
 
 /**
+ * The driver kinds this build supports. `ProviderDriverKind` stays an open
+ * slug so persisted payloads always decode (see module docs); this
+ * allowlist is the closed set the runtime will instantiate. Persisted
+ * instances for other kinds are preserved but surfaced as "unavailable",
+ * and creating or starting one is rejected with
+ * {@link unsupportedProviderDriverDetail}.
+ */
+export const SUPPORTED_PROVIDER_DRIVER_KINDS: ReadonlyArray<ProviderDriverKind> = [
+  ProviderDriverKind.make("claudeAgent"),
+  ProviderDriverKind.make("opencode"),
+  ProviderDriverKind.make("acpRegistry"),
+];
+
+export const isSupportedProviderDriverKind = (driver: ProviderDriverKind): boolean =>
+  SUPPORTED_PROVIDER_DRIVER_KINDS.includes(driver);
+
+/**
+ * Clear, user-facing rejection text for a driver kind this build does not
+ * support. Used wherever instance creation, thread start, or delegation
+ * would otherwise fail with an opaque "not found".
+ */
+export const unsupportedProviderDriverDetail = (driver: string): string =>
+  `Provider driver '${driver}' is not supported in this build. Supported drivers: ${SUPPORTED_PROVIDER_DRIVER_KINDS.join(", ")}.`;
+
+/**
  * `ProviderInstanceId` — user-defined routing key for a configured provider
  * instance. Same slug rules as `ProviderDriverKind`; branded separately so the
  * type system cannot confuse the two.
