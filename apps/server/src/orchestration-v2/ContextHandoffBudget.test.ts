@@ -669,13 +669,48 @@ describe("handoff delivery", () => {
     }),
   );
 
-  it.effect("fails before delivery when even the coverage marker cannot fit", () =>
+  it.effect("sends only the recovery pointer when the target has no room for history", () =>
+    Effect.gen(function* () {
+      let captured: ProviderAdapterV2HistoricalContext | undefined;
+      const statuses: Array<string | undefined> = [];
+      const result = yield* deliverContextHandoffs({
+        handoffs: [handoff],
+        providerThread,
+        budget: handoffBudget({
+          tokenCap: 64_000,
+          userText: "Status?",
+          attachments: [],
+          providerThread: {
+            ...providerThread,
+            contextUsage: { usedTokens: 235_790, maxTokens: 272_000 },
+          },
+          nativeContextEstimate: 0,
+        }),
+        alreadyDeliveredItemIds: new Set(),
+        inject: (history) =>
+          Effect.sync(() => {
+            captured = history;
+            return true;
+          }),
+        persist: (value) => Effect.sync(() => statuses.push(value.delivery?.status)),
+      });
+      assert.equal(result.context, "");
+      assert.isDefined(captured);
+      assert.deepEqual(captured.messages, []);
+      assert.include(captured.context, "t3_thread_read");
+      assert.include(captured.context, threadId);
+      assert.deepEqual(statuses, ["pending", "injected"]);
+    }),
+  );
+
+  it.effect("defers compaction delivery when the target has no room for history", () =>
     Effect.gen(function* () {
       let calls = 0;
       const result = yield* deliverContextHandoffs({
         handoffs: [handoff],
         providerThread,
         budget: 0,
+        deferInline: true,
         alreadyDeliveredItemIds: new Set(),
         inject: () =>
           Effect.sync(() => {
@@ -683,8 +718,8 @@ describe("handoff delivery", () => {
             return true;
           }),
         persist: () => Effect.void,
-      }).pipe(Effect.result);
-      assert.equal(result._tag, "Failure");
+      });
+      assert.equal(result.context, "");
       assert.equal(calls, 0);
     }),
   );
