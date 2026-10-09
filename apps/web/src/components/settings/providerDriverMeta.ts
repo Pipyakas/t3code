@@ -1,4 +1,5 @@
-import { AcpRegistrySettings, ClaudeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { ClaudeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
 import { makeProviderClientRegistry } from "@t3tools/provider-core/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 
@@ -10,10 +11,5 @@ export const providerClients = makeProviderClientRegistry([
     settingsSchema: ClaudeSettings,
   },
   openCodeClient,
-  {
-    driverKind: ProviderDriverKind.make("acpRegistry"),
-    label: "ACP Registry",
-    settingsSchema: AcpRegistrySettings,
-    hasDefaultInstance: false,
-  },
+  acpRegistryClient,
 ]);

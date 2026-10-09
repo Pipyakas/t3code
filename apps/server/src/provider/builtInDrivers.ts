@@ -20,7 +20,10 @@
  *
  * @module provider/builtInDrivers
  */
-import { AcpRegistryDriver, type AcpRegistryDriverEnv } from "./Drivers/AcpRegistryDriver.ts";
+import {
+  AcpRegistryDriver,
+  type AcpRegistryDriverEnv,
+} from "@t3tools/provider-acp-registry/server";
 import { ClaudeDriver, type ClaudeDriverEnv } from "./Drivers/ClaudeDriver.ts";
 import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
 import type { AnyProviderDriver } from "@t3tools/provider-core/server/driver";
