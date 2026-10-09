@@ -96,6 +96,32 @@ jobs:
           node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 \
             --build-version "${{ steps.meta.outputs.version }}" --verbose
 
+      # SSH environments and `t3 service` install the server on a Windows host
+      # from this archive, pinned to the desktop's own version.
+      - name: Build CLI single-executable
+        shell: bash
+        env:
+          # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      - name: Build CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          monitor_dir="$RUNNER_TEMP/cli-resource-monitor/win32-x64"
+          mkdir -p "$monitor_dir"
+          cp native/resource-monitor/target/x86_64-pc-windows-msvc/release/t3-resource-monitor.exe "$monitor_dir/"
+          node scripts/build-cli-archive.ts --platform win --arch x64 \
+            --version "${{ steps.meta.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+          node scripts/smoke-cli-archive.ts --archive release-cli/* \
+            --expect-version "${{ steps.meta.outputs.version }}"
+          cd release-cli
+          sha256sum t3-*.zip > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
@@ -109,4 +135,5 @@ jobs:
             release/*.exe
             release/*.blockmap
             release/nightly.yml
+            release-cli/*
           fail_on_unmatched_files: true
