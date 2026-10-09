@@ -1,9 +1,10 @@
 import { isProviderDriverKind } from "@t3tools/contracts";
+import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
 import { makeProviderClientRegistry } from "@t3tools/provider-core/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 
 /** The provider client definitions this mobile build ships. */
-const providerClients = makeProviderClientRegistry([openCodeClient]);
+const providerClients = makeProviderClientRegistry([openCodeClient, acpRegistryClient]);
 
 /** The client definition for a driver kind, or `undefined` for drivers drawn by hand. */
 export function getProviderClient(driver: string | null | undefined) {
