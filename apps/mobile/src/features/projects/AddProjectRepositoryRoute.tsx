@@ -15,13 +15,7 @@ export function AddProjectRepositoryRoute({
   const params = route.params ?? {};
   const source = Array.isArray(params.source) ? params.source[0] : params.source;
   const title =
-    source === "github" ||
-    source === "gitlab" ||
-    source === "forgejo" ||
-    source === "bitbucket" ||
-    source === "azure-devops"
-      ? addProjectRemoteSourceLabel(source)
-      : "Git URL";
+    source === "github" || source === "gitlab" ? addProjectRemoteSourceLabel(source) : "Git URL";
 
   return (
     <>

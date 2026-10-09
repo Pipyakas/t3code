@@ -25,10 +25,8 @@ import {
 } from "../state/projects.ts";
 import type { EnvironmentProject } from "../state/models.ts";
 
-export type AddProjectRemoteProviderKind = Extract<
-  SourceControlProviderKind,
-  "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops"
->;
+// The offline build clones from GitHub, GitLab, or a plain Git URL only.
+export type AddProjectRemoteProviderKind = Extract<SourceControlProviderKind, "github" | "gitlab">;
 export type AddProjectRemoteSource = AddProjectRemoteProviderKind | "url";
 
 export function canCreateProjectInEnvironment(
@@ -74,31 +72,19 @@ const ADD_PROJECT_REMOTE_SOURCES: ReadonlyArray<AddProjectRemoteSource> = [
   "url",
   "github",
   "gitlab",
-  "forgejo",
-  "bitbucket",
-  "azure-devops",
 ];
 
 const ADD_PROJECT_REMOTE_PROVIDER_SOURCES: ReadonlyArray<AddProjectRemoteProviderKind> = [
   "github",
   "gitlab",
-  "forgejo",
-  "bitbucket",
-  "azure-devops",
 ];
 
 export function addProjectRemoteSourceLabel(source: AddProjectRemoteSource): string {
   switch (source) {
     case "github":
       return "GitHub";
-    case "forgejo":
-      return "Forgejo / Gitea";
     case "gitlab":
       return "GitLab";
-    case "bitbucket":
-      return "Bitbucket";
-    case "azure-devops":
-      return "Azure DevOps";
     case "url":
       return "Git URL";
   }
@@ -106,15 +92,10 @@ export function addProjectRemoteSourceLabel(source: AddProjectRemoteSource): str
 
 export function addProjectRemoteSourcePathHint(source: AddProjectRemoteSource): string {
   switch (source) {
-    case "forgejo":
     case "github":
       return "owner/repo";
     case "gitlab":
       return "group/project";
-    case "bitbucket":
-      return "workspace/repository";
-    case "azure-devops":
-      return "project/repository";
     case "url":
       return "URL";
   }
@@ -175,9 +156,6 @@ export function buildAddProjectRemoteSourceReadiness(
     url: { ready: true, hint: null },
     github: unavailable,
     gitlab: unavailable,
-    forgejo: unavailable,
-    bitbucket: unavailable,
-    "azure-devops": unavailable,
   };
 
   if (!discovery) {

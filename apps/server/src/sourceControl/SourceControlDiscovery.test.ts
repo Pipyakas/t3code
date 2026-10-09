@@ -591,29 +591,10 @@ it.effect("reports implemented tools separately from locally available executabl
           auth: "unknown",
           account: Option.none(),
         },
-        {
-          kind: "azure-devops",
-          status: "missing",
-          auth: "unknown",
-          account: Option.none(),
-        },
-        {
-          kind: "bitbucket",
-          status: "available",
-          auth: "unauthenticated",
-          account: Option.none(),
-        },
-        {
-          kind: "forgejo",
-          status: "missing",
-          auth: "unknown",
-          account: Option.none(),
-        },
       ],
     );
-    const bitbucket = result.sourceControlProviders.find((item) => item.kind === "bitbucket");
-    assert.ok(bitbucket);
-    assert.strictEqual(bitbucket.executable, undefined);
+    // The offline build registers GitHub and GitLab only.
+    assert.isUndefined(result.sourceControlProviders.find((item) => item.kind === "bitbucket"));
   }).pipe(Effect.provide(layerTest));
 });
 
@@ -727,24 +708,6 @@ Logged in to gitlab.com as gitlab-user
           kind: "gitlab",
           auth: "authenticated",
           account: Option.some("gitlab-user"),
-          detail: Option.none(),
-        },
-        {
-          kind: "azure-devops",
-          auth: "authenticated",
-          account: Option.some("azure-user@example.com"),
-          detail: Option.none(),
-        },
-        {
-          kind: "bitbucket",
-          auth: "authenticated",
-          account: Option.some("bitbucket-user"),
-          detail: Option.none(),
-        },
-        {
-          kind: "forgejo",
-          auth: "authenticated",
-          account: Option.some("forgejo-user"),
           detail: Option.none(),
         },
       ],
