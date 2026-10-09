@@ -29,10 +29,24 @@ import {
   SERVICE_RESTART_PENDING_FILE,
   SERVICE_STOP_MARKER_FILE,
 } from "./cloud/serviceProtocol.ts";
+import { listenForServiceControl } from "./cloud/serviceControl.ts";
 
 const HANDOFF_DELAY_MS = 2_000;
 const PREPARED_TIMEOUT_MS = 120_000;
 const TERMINATE_GRACE_MS = 5_000;
+// A message-driven stop runs the server's full shutdown (provider sessions,
+// terminals, the tunnel) instead of a kill, so it gets longer before forcing.
+const SHUTDOWN_MESSAGE_GRACE_MS = 20_000;
+const WINDOWS_RESTART_DELAY_MS = 5_000;
+
+/**
+ * How the launcher asks its child to stop. POSIX signals the child. Windows
+ * has no deliverable SIGTERM (`kill` is TerminateProcess, which skips every
+ * shutdown finalizer and orphans agent processes), so it sends a `shutdown`
+ * message over the IPC channel and kills the process tree only if that times
+ * out.
+ */
+export type ChildShutdown = "signal" | "message";
 
 type TerminalStatus = "committed" | "rolled-back" | "failed";
 type ChildRole = "active" | "trial";
@@ -258,13 +272,32 @@ function waitForExit(child: NodeChildProcess.ChildProcess): Promise<void> {
   return new Promise((resolve) => child.once("exit", () => resolve()));
 }
 
+function killProcessTree(child: NodeChildProcess.ChildProcess): void {
+  // oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone launcher has no Effect runtime.
+  if (process.platform === "win32" && child.pid !== undefined) {
+    NodeChildProcess.spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    }).on("error", () => child.kill("SIGKILL"));
+    return;
+  }
+  child.kill("SIGKILL");
+}
+
 async function terminateChild(
   child: NodeChildProcess.ChildProcess,
+  shutdown: ChildShutdown,
   signal: NodeJS.Signals = "SIGTERM",
 ): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill(signal);
-  const force = setTimeout(() => child.kill("SIGKILL"), TERMINATE_GRACE_MS);
+  let graceMs = TERMINATE_GRACE_MS;
+  if (shutdown === "message" && child.connected) {
+    graceMs = SHUTDOWN_MESSAGE_GRACE_MS;
+    await sendMessage(child, { type: "shutdown" }).catch(() => killProcessTree(child));
+  } else {
+    child.kill(signal);
+  }
+  const force = setTimeout(() => killProcessTree(child), graceMs);
   try {
     await waitForExit(child);
   } finally {
@@ -277,9 +310,20 @@ const stopMarkerPath = (baseDir: string) =>
 const restartPendingPath = (baseDir: string) =>
   NodePath.join(baseDir, "runtime", SERVICE_RESTART_PENDING_FILE);
 
+export interface LauncherOptions {
+  readonly childShutdown?: ChildShutdown;
+  /** Serve stop requests on the per-home control pipe (see cloud/serviceControl.ts). */
+  readonly controlPipe?: boolean;
+  /** Child stdout and stderr go here; Task Scheduler has no output redirection. */
+  readonly logFd?: number;
+}
+
 export class Launcher {
   readonly #baseDir: string;
   readonly #statePath: string;
+  readonly #childShutdown: ChildShutdown;
+  readonly #controlPipe: boolean;
+  readonly #logFd: number | undefined;
   #state: ServiceState;
   #child: ManagedChild | null = null;
   #timer: NodeJS.Timeout | undefined;
@@ -289,10 +333,13 @@ export class Launcher {
   #done = false;
   readonly #completion = Promise.withResolvers<void>();
 
-  constructor(baseDir: string, state: ServiceState) {
+  constructor(baseDir: string, state: ServiceState, options: LauncherOptions = {}) {
     this.#baseDir = baseDir;
     this.#statePath = NodePath.join(baseDir, "runtime", SERVICE_STATE_FILE);
     this.#state = state;
+    this.#childShutdown = options.childShutdown ?? "signal";
+    this.#controlPipe = options.controlPipe ?? false;
+    this.#logFd = options.logFd;
   }
 
   async run(): Promise<void> {
@@ -300,12 +347,17 @@ export class Launcher {
     const onSigint = () => void this.stop("SIGINT");
     process.once("SIGTERM", onSigterm);
     process.once("SIGINT", onSigint);
+    let control: { readonly close: () => void } | undefined;
     try {
+      if (this.#controlPipe) {
+        control = await listenForServiceControl(this.#baseDir, () => this.stop("SIGTERM"));
+      }
       this.#enqueue(() => this.#recover());
       await this.#completion.promise;
     } finally {
       process.off("SIGTERM", onSigterm);
       process.off("SIGINT", onSigint);
+      control?.close();
     }
   }
 
@@ -324,7 +376,7 @@ export class Launcher {
     this.#clearTimer();
     const child = this.#child?.process;
     this.#child = null;
-    if (child !== undefined) await terminateChild(child);
+    if (child !== undefined) await terminateChild(child, this.#childShutdown);
     this.#completion.reject(error);
   }
 
@@ -353,7 +405,7 @@ export class Launcher {
       this.#stopping = true;
       const child = this.#child?.process;
       this.#child = null;
-      if (child !== undefined) await terminateChild(child, signal);
+      if (child !== undefined) await terminateChild(child, this.#childShutdown, signal);
       this.#done = true;
       this.#completion.resolve();
     });
@@ -428,7 +480,11 @@ export class Launcher {
     const spawnArguments = runtimeSpawnArguments(paths);
     const child = NodeChildProcess.spawn(spawnArguments.command, spawnArguments.args, {
       env: { ...process.env, [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify(context) },
-      stdio: ["inherit", "inherit", "inherit", "ipc"],
+      stdio:
+        this.#logFd === undefined
+          ? ["inherit", "inherit", "inherit", "ipc"]
+          : ["ignore", this.#logFd, this.#logFd, "ipc"],
+      windowsHide: true,
     });
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => reject(error);
@@ -440,7 +496,7 @@ export class Launcher {
       });
     });
     if (this.#stopping) {
-      await terminateChild(child);
+      await terminateChild(child, this.#childShutdown);
       return;
     }
 
@@ -531,7 +587,7 @@ export class Launcher {
     }
     this.#timer = undefined;
     this.#child = null;
-    await terminateChild(child.process);
+    await terminateChild(child.process, this.#childShutdown);
     await this.#startTrial(pending);
   }
 
@@ -610,7 +666,7 @@ export class Launcher {
   ): Promise<void> {
     if (child !== undefined) {
       this.#child = null;
-      await terminateChild(child.process);
+      await terminateChild(child.process, this.#childShutdown);
     }
     await restoreDatabaseBackup(this.#baseDir, pending);
     const outcome = terminalUpdate({ pending, status, reason });
@@ -626,12 +682,52 @@ export class Launcher {
   }
 }
 
-export async function main(): Promise<void> {
-  const baseDir = process.env.T3CODE_HOME?.trim();
+export interface LauncherMainOptions {
+  /** Task Scheduler cannot set environment variables, so Windows passes the home as an argument. */
+  readonly baseDir?: string | undefined;
+  /** Task Scheduler has no output redirection either. */
+  readonly logFile?: string | undefined;
+}
+
+export async function main(options: LauncherMainOptions = {}): Promise<void> {
+  const baseDir = options.baseDir?.trim() || process.env.T3CODE_HOME?.trim();
   if (baseDir === undefined || baseDir === "") {
     throw new Error("T3CODE_HOME is required by the T3 Code service launcher.");
   }
+  // The child resolves its home from the environment.
+  process.env.T3CODE_HOME = baseDir;
+  const logFd =
+    options.logFile === undefined ? undefined : NodeFS.openSync(options.logFile, "a", 0o600);
+  if (logFd !== undefined) {
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      if (typeof chunk === "string") NodeFS.writeSync(logFd, chunk);
+      else NodeFS.writeSync(logFd, chunk);
+      return true;
+    }) as typeof process.stderr.write;
+  }
   const statePath = NodePath.join(baseDir, "runtime", SERVICE_STATE_FILE);
-  const state = await readServiceState(statePath);
-  await new Launcher(baseDir, state).run();
+  // oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone launcher has no Effect runtime.
+  const windows = process.platform === "win32";
+  for (;;) {
+    const state = await readServiceState(statePath);
+    const launcher = new Launcher(baseDir, state, {
+      childShutdown: windows ? "message" : "signal",
+      controlPipe: windows,
+      ...(logFd === undefined ? {} : { logFd }),
+    });
+    try {
+      await launcher.run();
+      return;
+    } catch (error) {
+      // systemd and launchd restart a launcher that exits with an error.
+      // Task Scheduler only retries a task that fails to start, so on Windows
+      // the launcher restarts itself after the same 5s systemd waits.
+      if (!windows) throw error;
+      process.stderr.write(
+        `[service-launcher] ${error instanceof Error ? error.message : String(error)} Restarting in 5s.
+`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, WINDOWS_RESTART_DELAY_MS));
+  }
 }

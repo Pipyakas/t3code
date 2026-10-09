@@ -189,6 +189,48 @@ it.layer(NodeServices.layer)("service state persistence", (it) => {
     }),
   );
 
+  it.effect("stops a child by message where signals cannot carry a graceful stop", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-service-launcher-message-" });
+      const statePath = path.join(root, "runtime", "service-state.json");
+      const markerPath = path.join(root, "graceful");
+      // Like a Windows child: a signal would only ever terminate it, so it
+      // ignores SIGTERM here and shuts down on the launcher's message.
+      yield* writeFakeRuntime(
+        fs,
+        path,
+        path.join(root, "runtime", "versions", "1.0.0"),
+        `
+process.on("SIGTERM", () => {});
+process.on("message", (message) => {
+  if (message.type !== "shutdown") return;
+  require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, "graceful");
+  process.exit(0);
+});
+setInterval(() => {}, 1_000);
+`,
+      );
+      yield* Effect.promise(() =>
+        writeServiceState(statePath, {
+          protocol: SERVICE_LAUNCHER_PROTOCOL,
+          activeVersion: "1.0.0",
+        }),
+      );
+
+      const launcher = new Launcher(
+        root,
+        yield* Effect.promise(() => readServiceState(statePath)),
+        { childShutdown: "message" },
+      );
+      const running = launcher.run();
+      yield* Effect.promise(() => launcher.stop("SIGTERM"));
+      yield* Effect.promise(() => running);
+      assert.equal(yield* fs.readFileString(markerPath), "graceful");
+    }),
+  );
+
   it.effect("commits only after the trial reports prepared", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
