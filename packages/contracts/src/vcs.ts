@@ -1,6 +1,8 @@
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
+// The offline build only drives Git. "jj" stays decodable so discovery results
+// from upstream servers, which still report Jujutsu, keep working over LAN.
 export const VcsDriverKind = Schema.Literals(["git", "jj", "unknown"]);
 export type VcsDriverKind = typeof VcsDriverKind.Type;
 
