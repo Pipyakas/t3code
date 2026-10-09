@@ -4,7 +4,6 @@ import type {
   AgentSessionProjectCandidate,
   EnvironmentId,
   ProjectId,
-  ProviderInstanceId,
   ScopedProjectRef,
   ServerConfig,
   ServerProvider,
@@ -17,7 +16,6 @@ import {
 import {
   AuthTerminalOperateScope,
   CommandId,
-  defaultInstanceIdForDriver,
   AuthOrchestrationOperateScope,
   ProviderDriverKind,
   ThreadId,
@@ -76,8 +74,6 @@ import { connectPairing } from "../../connection/onboarding";
 import { getProviderSummary } from "../settings/providerStatus";
 import { providerClients } from "../settings/providerDriverMeta";
 import { ChatGptWelcomeCoordinator } from "../settings/ChatGptWelcomeCoordinator";
-import { AddManagedCodexAccountDialog, CodexSetupSection } from "../settings/CodexSetupSection";
-import { readCodexSetupMode } from "../settings/CodexSetupSection.logic";
 import { buildProviderInstanceUpdatePatch } from "../settings/SettingsPanels.logic";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
@@ -103,7 +99,7 @@ import { formatRelativeTime } from "../../timestampFormat";
  * First-run welcome wizard. Rendered over the workspace at `/welcome` on a
  * fresh install (no completed-onboarding flag, empty workspace). Flow per the
  * onboarding overhaul spec: connection choice → sign-in/pair (remote paths) →
- * managed Codex setup or an inline CLI terminal → project import → main screen.
+ * an inline CLI terminal per agent → project import → main screen.
  * Every step past the connection gate is skippable; the whole wizard is
  * re-runnable by clearing the flag.
  */
@@ -652,7 +648,7 @@ function PairingForm({
 
 // ── Step 3: agents ───────────────────────────────────────────
 
-const PRIMARY_AGENT_DRIVERS = ["codex", "claudeAgent"] as const;
+const PRIMARY_AGENT_DRIVERS = ["opencode", "claudeAgent"] as const;
 type OnboardingAgentDriver = (typeof PRIMARY_AGENT_DRIVERS)[number];
 
 /** Setup values stay fixed while provider probes refresh the surrounding cards. */
@@ -665,7 +661,7 @@ interface AgentTerminalSession {
   readonly keybindings: ServerConfig["keybindings"];
 }
 
-/** Codex uses managed setup; existing CLI installs retain the terminal path. */
+/** Each agent installs or signs in through an inline CLI terminal. */
 function AgentsStep({
   environmentIds,
   onContinue,
@@ -715,13 +711,8 @@ function ConnectedAgentsStep({
     reportFailure: false,
   });
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const updateSettings = useAtomCommand(serverEnvironment.updateSettings, "Agent settings");
   const [terminalSession, setTerminalSession] = useState<AgentTerminalSession | null>(null);
-  const [addingAccount, setAddingAccount] = useState(false);
-  const [createdAccount, setCreatedAccount] = useState<{
-    instanceId: ProviderInstanceId;
-    displayName: string;
-    autoStart: boolean;
-  } | null>(null);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
 
   // Re-probe on entry so freshly installed CLIs show up without a manual
@@ -732,27 +723,6 @@ function ConnectedAgentsStep({
 
   const byDriver = useMemo(() => selectOnboardingProvidersByDriver(providers), [providers]);
 
-  const primaryAgents = PRIMARY_AGENT_DRIVERS.flatMap((driver) => {
-    const instances =
-      driver === "codex" ? providers?.filter((provider) => provider.driver === driver) : undefined;
-    return instances?.length
-      ? instances.map((provider) => ({ driver, provider, instanceId: provider.instanceId }))
-      : [{ driver, provider: byDriver.get(driver), instanceId: byDriver.get(driver)?.instanceId }];
-  });
-  // Keep the newly created row mounted while settings and provider snapshots catch up.
-  if (createdAccount) {
-    const index = primaryAgents.findIndex(
-      (agent) => agent.instanceId === createdAccount.instanceId,
-    );
-    const [existing] = index >= 0 ? primaryAgents.splice(index, 1) : [];
-    primaryAgents.unshift(
-      existing ?? {
-        driver: "codex",
-        provider: undefined,
-        instanceId: createdAccount.instanceId,
-      },
-    );
-  }
   return (
     <section>
       <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
@@ -762,50 +732,39 @@ function ConnectedAgentsStep({
         </p>
       ) : null}
       <div className="space-y-1.5">
-        {primaryAgents.map(({ driver, provider, instanceId }) =>
-          driver === "codex" && serverConfig !== null ? (
-            <OnboardingCodexSetup
-              key={instanceId ?? driver}
-              environmentId={environmentId}
-              provider={provider}
-              serverConfig={serverConfig}
-              createdAccount={instanceId === createdAccount?.instanceId ? createdAccount : null}
-              onAutoStartConsumed={() =>
-                setCreatedAccount((account) => (account ? { ...account, autoStart: false } : null))
-              }
-              terminalOpen={terminalSession?.driver === driver}
-              onOpenTerminal={() => {
-                if (
-                  provider === undefined ||
-                  !readEnvironmentScope(environmentId, AuthTerminalOperateScope)
-                )
-                  return;
-                setTerminalSession({
-                  environmentId,
-                  driver,
-                  providerInstanceId: provider.instanceId,
-                  cwd: serverConfig.cwd,
-                  command: provider.installed
-                    ? resolveOnboardingProviderLoginCommand(
-                        provider,
-                        serverConfig.settings,
-                        serverConfig.environment.platform.os,
-                      )
-                    : resolveOnboardingProviderInstallCommand(
-                        driver,
-                        serverConfig.environment.platform.os,
-                      ),
-                  keybindings: serverConfig.keybindings,
-                });
-              }}
-            />
-          ) : (
+        {PRIMARY_AGENT_DRIVERS.map((driver) => {
+          const provider = byDriver.get(driver);
+          return (
             <AgentCard
               key={driver}
               driver={driver}
               provider={provider}
               terminalOpen={terminalSession?.driver === driver}
               terminalAvailable={serverConfig !== null && canOperateTerminal}
+              onEnable={() => {
+                if (provider === undefined || serverConfig === null) return;
+                const settings = serverConfig.settings;
+                const existing = settings.providerInstances[provider.instanceId];
+                const config = existing?.config;
+                void updateSettings({
+                  environmentId,
+                  input: {
+                    patch: buildProviderInstanceUpdatePatch({
+                      settings,
+                      instanceId: provider.instanceId,
+                      instance: {
+                        ...existing,
+                        driver: provider.driver,
+                        enabled: true,
+                        config: {
+                          ...(config !== null && typeof config === "object" ? config : {}),
+                          enabled: true,
+                        },
+                      },
+                    }),
+                  },
+                }).then(() => refreshProviders({ environmentId, input: {} }));
+              }}
               onOpenTerminal={() => {
                 if (
                   provider === undefined ||
@@ -832,28 +791,9 @@ function ConnectedAgentsStep({
                 });
               }}
             />
-          ),
-        )}
+          );
+        })}
       </div>
-      {providers?.some(
-        (provider) =>
-          provider.driver === "codex" && getOnboardingProviderState(provider) === "ready",
-      ) ? (
-        <div className="mt-3">
-          <Button size="xs" variant="ghost-muted" onClick={() => setAddingAccount(true)}>
-            Connect another ChatGPT account
-          </Button>
-        </div>
-      ) : null}
-      {addingAccount ? (
-        <AddManagedCodexAccountDialog
-          environmentId={environmentId}
-          onClose={() => setAddingAccount(false)}
-          onAccountCreated={(instanceId, displayName) =>
-            setCreatedAccount({ instanceId, displayName, autoStart: true })
-          }
-        />
-      ) : null}
       {terminalSession !== null ? (
         <AgentInstallTerminal
           key={`${terminalSession.environmentId}:${terminalSession.providerInstanceId}:${terminalSession.driver}`}
@@ -868,102 +808,19 @@ function ConnectedAgentsStep({
   );
 }
 
-function OnboardingCodexSetup({
-  createdAccount,
-  onAutoStartConsumed,
-  environmentId,
-  provider,
-  serverConfig,
-  terminalOpen,
-  onOpenTerminal,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly provider: ServerProvider | undefined;
-  readonly serverConfig: ServerConfig;
-  readonly terminalOpen: boolean;
-  readonly onOpenTerminal: () => void;
-  readonly createdAccount: {
-    instanceId: ProviderInstanceId;
-    displayName: string;
-    autoStart: boolean;
-  } | null;
-  readonly onAutoStartConsumed: () => void;
-}) {
-  const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
-  const update = useAtomCommand(serverEnvironment.updateSettings, "Codex setup settings");
-  const instanceId =
-    createdAccount?.instanceId ??
-    provider?.instanceId ??
-    defaultInstanceIdForDriver(ProviderDriverKind.make("codex"));
-  const settings = serverConfig.settings;
-  const instance = settings.providerInstances[instanceId] ?? {
-    driver: ProviderDriverKind.make("codex"),
-    config: createdAccount ? { enabled: true, setupMode: "managed" } : {},
-  };
-  const mode = readCodexSetupMode(instance.config);
-  const existingChosen =
-    mode === "existing" &&
-    instance.config !== null &&
-    typeof instance.config === "object" &&
-    "setupMode" in instance.config &&
-    instance.config.setupMode === "existing";
-  const changeMode = (setupMode: "managed" | "existing") => {
-    void update({
-      environmentId,
-      input: {
-        patch: buildProviderInstanceUpdatePatch({
-          settings,
-          instanceId,
-          instance: {
-            ...instance,
-            enabled: true,
-            config: {
-              ...(instance.config !== null && typeof instance.config === "object"
-                ? instance.config
-                : {}),
-              enabled: true,
-              setupMode,
-            },
-          },
-        }),
-      },
-    });
-  };
-  return existingChosen ? (
-    <AgentCard
-      driver="codex"
-      provider={provider}
-      terminalOpen={terminalOpen}
-      terminalAvailable={canOperateTerminal}
-      onOpenTerminal={onOpenTerminal}
-    />
-  ) : (
-    <CodexSetupSection
-      presentation="onboarding"
-      autoStart={createdAccount?.autoStart === true}
-      displayName={createdAccount?.displayName}
-      onAutoStartConsumed={onAutoStartConsumed}
-      environmentId={environmentId}
-      instanceId={instanceId}
-      provider={provider}
-      mode={mode}
-      enabled={provider?.enabled ?? true}
-      onModeChange={changeMode}
-    />
-  );
-}
-
 function AgentCard({
   driver,
   provider,
   terminalOpen,
   terminalAvailable,
+  onEnable,
   onOpenTerminal,
 }: {
   readonly driver: OnboardingAgentDriver;
   readonly provider: ServerProvider | undefined;
   readonly terminalOpen: boolean;
   readonly terminalAvailable: boolean;
+  readonly onEnable: () => void;
   readonly onOpenTerminal: () => void;
 }) {
   const meta = providerClients.get(ProviderDriverKind.make(driver));
@@ -995,7 +852,9 @@ function AgentCard({
         ) : providerState === "checking" ? (
           <span className="text-xs text-muted-foreground">Checking...</span>
         ) : providerState === "disabled" ? (
-          <span className="text-xs text-muted-foreground">Disabled</span>
+          <Button size="xs" variant="ghost" onClick={onEnable}>
+            Enable
+          </Button>
         ) : providerState === "attention" ? (
           <span className="text-xs text-muted-foreground">{summary.headline}</span>
         ) : (

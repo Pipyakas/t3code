@@ -166,6 +166,30 @@ describe("resolveOnboardingProviderLoginCommand", () => {
     ).toBe("/opt/codex-work/bin/codex login");
   });
 
+  it("uses the selected OpenCode instance binary for auth login", () => {
+    const provider: ServerProvider = {
+      ...readyCodex,
+      driver: ProviderDriverKind.make("opencode"),
+      instanceId: ProviderInstanceId.make("opencode_work"),
+    };
+
+    expect(
+      resolveOnboardingProviderLoginCommand(
+        provider,
+        {
+          ...DEFAULT_SERVER_SETTINGS,
+          providerInstances: {
+            [provider.instanceId]: {
+              driver: provider.driver,
+              config: { binaryPath: "C:\\Program Files\\OpenCode\\opencode.exe" },
+            },
+          },
+        },
+        "windows",
+      ),
+    ).toBe("& 'C:\\Program Files\\OpenCode\\opencode.exe' auth login");
+  });
+
   it("uses the selected Claude account binary", () => {
     const provider: ServerProvider = {
       ...readyCodex,
@@ -331,6 +355,9 @@ describe("resolveOnboardingProviderInstallCommand", () => {
     expect(resolveOnboardingProviderInstallCommand("claudeAgent", "windows")).toBe(
       "irm https://claude.ai/install.ps1 | iex",
     );
+    expect(resolveOnboardingProviderInstallCommand("opencode", "windows")).toBe(
+      "npm install -g opencode-ai",
+    );
   });
 
   it.each(["darwin", "linux", "unknown"] as const)("uses the shell installer on %s", (platform) => {
@@ -339,6 +366,9 @@ describe("resolveOnboardingProviderInstallCommand", () => {
     );
     expect(resolveOnboardingProviderInstallCommand("claudeAgent", platform)).toBe(
       "curl -fsSL https://claude.ai/install.sh | bash",
+    );
+    expect(resolveOnboardingProviderInstallCommand("opencode", platform)).toBe(
+      "curl -fsSL https://opencode.ai/install | bash",
     );
   });
 });

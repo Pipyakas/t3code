@@ -114,10 +114,6 @@ vi.mock("@clerk/react", () => ({ useAuth: vi.fn() }));
 vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../providerInstances", () => ({ resolveDefaultProviderModelSelection: vi.fn() }));
 vi.mock("../settings/ChatGptWelcomeCoordinator", () => ({ ChatGptWelcomeCoordinator: () => null }));
-vi.mock("../settings/CodexSetupSection", () => ({
-  CodexSetupSection: () => null,
-  AddManagedCodexAccountDialog: () => null,
-}));
 vi.mock("../settings/providerDriverMeta", () => ({
   providerClients: { get: (driver: string) => ({ label: driver }) },
 }));
@@ -186,10 +182,10 @@ const missingClaude: ServerProvider = {
   slashCommands: [],
   skills: [],
 };
-const signedOutCodex: ServerProvider = {
+const signedOutOpenCode: ServerProvider = {
   ...missingClaude,
-  instanceId: ProviderInstanceId.make("codex-work"),
-  driver: ProviderDriverKind.make("codex"),
+  instanceId: ProviderInstanceId.make("opencode-work"),
+  driver: ProviderDriverKind.make("opencode"),
   installed: true,
   auth: { status: "unauthenticated" },
 };
@@ -257,7 +253,7 @@ beforeEach(() => {
     );
     state.providers.set(
       id,
-      Atom.make<ReadonlyArray<ServerProvider>>([missingClaude, signedOutCodex]).pipe(
+      Atom.make<ReadonlyArray<ServerProvider>>([missingClaude, signedOutOpenCode]).pipe(
         Atom.keepAlive,
       ),
     );
@@ -268,9 +264,9 @@ beforeEach(() => {
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
           providerInstances: {
-            [signedOutCodex.instanceId]: {
-              driver: signedOutCodex.driver,
-              config: { binaryPath: "/opt/codex-work", setupMode: "existing" },
+            [signedOutOpenCode.instanceId]: {
+              driver: signedOutOpenCode.driver,
+              config: { binaryPath: "/opt/opencode-work" },
             },
           },
         },
@@ -370,7 +366,7 @@ describe("welcome agent terminal setup", () => {
         threadId: "onboarding-agent-setup",
         terminalId: expect.any(String),
         cwd: "/fixtures/paired-remote",
-        providerInstanceId: signedOutCodex.instanceId,
+        providerInstanceId: signedOutOpenCode.instanceId,
       },
     });
     expect(state.write).toHaveBeenCalledExactlyOnceWith({
@@ -378,7 +374,7 @@ describe("welcome agent terminal setup", () => {
       input: {
         threadId: "onboarding-agent-setup",
         terminalId: state.open.mock.calls[0]![0].input.terminalId,
-        data: "/opt/codex-work login",
+        data: "/opt/opencode-work auth login",
       },
     });
     expect(text(renderer!.root)).toContain("Review the command, then press Enter to run it.");
