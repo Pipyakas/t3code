@@ -15,6 +15,7 @@ import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -240,7 +241,9 @@ function applyScriptPlaceholders(
 ): string {
   let result = template;
   for (const [token, value] of Object.entries(replacements)) {
-    result = result.replaceAll(`@@${token}@@`, value);
+    // A function replacer: script text is full of `$`, which a string
+    // replacement would read as `$&`, `$'`, and similar patterns.
+    result = result.replaceAll(`@@${token}@@`, () => value);
   }
   return result;
 }
@@ -764,6 +767,309 @@ if [ -f "$LOG_FILE" ]; then
 fi
 `;
 
+// Windows hosts have no POSIX shell to run the scripts above, so every remote
+// step has a PowerShell twin. Windows PowerShell 5.1 ships with every
+// supported Windows, whatever the SSH server's DefaultShell is. The script
+// travels on stdin; only this short bootstrap is on the command line, encoded
+// so neither cmd.exe nor PowerShell as the DefaultShell can reinterpret it.
+const WINDOWS_BOOTSTRAP = `$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+$script = [Console]::In.ReadToEnd()
+try { & ([ScriptBlock]::Create($script)) } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
+
+const WINDOWS_PRELUDE = `[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$T3Home = Join-Path $env:USERPROFILE '.t3'
+
+# Windows PowerShell turns a native command's stderr into terminating errors
+# under ErrorActionPreference Stop; native calls run with Continue and are
+# judged by their exit code instead.
+function Invoke-Native([scriptblock]$Block) {
+  $saved = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $Block } finally { $ErrorActionPreference = $saved }
+}
+
+function Read-StateFile([string]$Path) {
+  if (Test-Path -LiteralPath $Path) { return ([string](Get-Content -LiteralPath $Path -Raw)).Trim() }
+  return ''
+}
+
+# Mirrors the POSIX runner: the release archive unpacked into the pinned
+# runtime layout, so \`t3 service install\` reuses it.
+function Get-T3Runtime {
+  $nodeScriptPath = @@T3_NODE_SCRIPT_PATH@@
+  if ($nodeScriptPath) { throw 'Running T3 Code from a source checkout is not supported on Windows SSH hosts.' }
+  $version = @@T3_ARCHIVE_VERSION@@
+  if (-not $version) { throw 'No t3 release version was provided for the remote runtime.' }
+  $versionsDir = Join-Path $T3Home 'runtime\\versions'
+  $runtimeDir = Join-Path $versionsDir $version
+  $exe = Join-Path $runtimeDir 't3.exe'
+  $sentinel = Join-Path $runtimeDir '.install-complete'
+  $ready = { (Test-Path -LiteralPath $exe) -and ((Read-StateFile $sentinel) -eq $version) }
+  if (& $ready) { return $exe }
+  New-Item -ItemType Directory -Force -Path $versionsDir | Out-Null
+  # Same lock protocol as the POSIX runner: directory creation is atomic, the
+  # owner publishes its pid, a dead owner's lock is reclaimed at once and an
+  # ownerless one after a short grace.
+  $lock = Join-Path $versionsDir ".$version.install.lock"
+  $waited = 0
+  $unowned = 0
+  while ($true) {
+    try { New-Item -ItemType Directory -Path $lock -ErrorAction Stop | Out-Null; break } catch { }
+    $owner = Read-StateFile (Join-Path $lock 'pid')
+    if ($owner) {
+      $unowned = 0
+      if (-not (Get-Process -Id $owner -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue
+        continue
+      }
+    } else {
+      $unowned++
+      if ($unowned -ge 5) {
+        Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue
+        continue
+      }
+    }
+    if ($waited -ge @@T3_ARCHIVE_LOCK_WAIT_SECONDS@@) { throw "Another t3 $version installation has held $lock for too long." }
+    Start-Sleep -Seconds 1
+    $waited++
+  }
+  $staging = Join-Path $versionsDir ('.staging-' + [guid]::NewGuid().ToString('N'))
+  try {
+    Set-Content -LiteralPath (Join-Path $lock 'pid') -Value $PID
+    if (& $ready) { return $exe }
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $archive = "t3-$version-win32-$arch.zip"
+    $baseUrl = @@T3_RELEASE_BASE_URL@@ + '/v' + $version
+    New-Item -ItemType Directory -Path $staging | Out-Null
+    $sums = Join-Path $staging 'SHA256SUMS'
+    $zip = Join-Path $staging $archive
+    Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/SHA256SUMS" -OutFile $sums -TimeoutSec @@T3_ARCHIVE_CHECKSUMS_SECONDS@@
+    Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$archive" -OutFile $zip -TimeoutSec @@T3_ARCHIVE_DOWNLOAD_SECONDS@@
+    $line = Get-Content -LiteralPath $sums | Where-Object { $_ -match ('^[0-9a-fA-F]{64} [ *]?' + [regex]::Escape($archive) + '$') } | Select-Object -First 1
+    $expected = if ($line) { $line.Substring(0, 64) } else { '' }
+    if (-not $expected -or (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash -ne $expected) { throw "Checksum mismatch for $archive." }
+    # The system tar reads zip; a Git for Windows tar earlier on PATH does not.
+    $tar = Join-Path $env:SystemRoot 'System32\\tar.exe'
+    Invoke-Native { & $tar -xf $zip -C $staging --strip-components=1 }
+    if ($LASTEXITCODE -ne 0) { throw "Could not unpack $archive." }
+    Remove-Item -LiteralPath $zip, $sums -Force
+    # Prove the binary runs here before marking it ready, or every later
+    # launch would run a broken install instead of retrying.
+    Invoke-Native { & (Join-Path $staging 't3.exe') --version *> $null }
+    if ($LASTEXITCODE -ne 0) { throw "The t3 $version executable does not run on this host." }
+    Set-Content -LiteralPath (Join-Path $staging '.install-complete') -Value $version
+    if (Test-Path -LiteralPath $runtimeDir) { Remove-Item -LiteralPath $runtimeDir -Recurse -Force }
+    Move-Item -LiteralPath $staging -Destination $runtimeDir
+    return $exe
+  } finally {
+    if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+$StateDir = Join-Path $T3Home 'ssh-launch\\@@T3_STATE_KEY@@'
+$PortFile = Join-Path $StateDir 'port'
+$PidFile = Join-Path $StateDir 'pid'
+$ManagedFile = Join-Path $StateDir 'managed'
+$LogFile = Join-Path $StateDir 'server.log'`;
+
+const WINDOWS_LAUNCH_SCRIPT = `@@T3_WINDOWS_PRELUDE@@
+New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+$T3 = Get-T3Runtime
+function Wait-T3Ready([string]$Port, [int]$TimeoutMs) {
+  Invoke-Native { & $T3 __ssh-helper wait-ready $Port $TimeoutMs @@T3_READY_PROBE_TIMEOUT_MS@@ *> $null }
+  return $LASTEXITCODE -eq 0
+}
+$Port = ''
+$Kind = ''
+# A server already serving this home is reused: the background service, one
+# started by hand, or the one this script started for an earlier connection.
+$RuntimeInfo = Invoke-Native { & $T3 __ssh-helper runtime-port (Join-Path $T3Home 'userdata\\server-runtime.json') 2> $null }
+if ($LASTEXITCODE -eq 0 -and $RuntimeInfo) {
+  $Candidate = ([string]$RuntimeInfo).Trim().Split(' ')[1]
+  if ($Candidate -and (Wait-T3Ready $Candidate @@T3_REUSE_READY_TIMEOUT_MS@@)) {
+    $Port = $Candidate
+    $ManagedPid = Read-StateFile $PidFile
+    if ((Read-StateFile $ManagedFile) -eq 'managed' -and $ManagedPid -and (Get-Process -Id $ManagedPid -ErrorAction SilentlyContinue)) {
+      $Kind = 'managed'
+    } else {
+      $Kind = 'external'
+      Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+      Set-Content -LiteralPath $PortFile -Value $Port
+      Set-Content -LiteralPath $ManagedFile -Value 'external'
+    }
+  }
+}
+if (-not $Port) {
+  $Port = ([string](Invoke-Native { & $T3 __ssh-helper pick-port $PortFile @@T3_DEFAULT_REMOTE_PORT@@ @@T3_REMOTE_PORT_SCAN_WINDOW@@ })).Trim()
+  if ($LASTEXITCODE -ne 0 -or -not $Port) { throw 'Failed to find an available port on the remote host.' }
+  # A process started inside a Windows SSH session is killed when the session
+  # ends. One created through WMI is outside the session and keeps running.
+  $CommandLine = 'cmd.exe /d /s /c "set T3CODE_NO_BROWSER=1&& "' + $T3 + '" serve --host 127.0.0.1 --port ' + $Port + ' --base-dir "' + $T3Home + '" >> "' + $LogFile + '" 2>&1"'
+  $Created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $CommandLine; CurrentDirectory = $env:USERPROFILE }
+  if ($Created.ReturnValue -ne 0) { throw "Could not start the remote T3 server (Win32_Process.Create returned $($Created.ReturnValue))." }
+  Set-Content -LiteralPath $PidFile -Value $Created.ProcessId
+  Set-Content -LiteralPath $PortFile -Value $Port
+  Set-Content -LiteralPath $ManagedFile -Value 'managed'
+  $Kind = 'managed'
+  if (-not (Wait-T3Ready $Port @@T3_READY_TIMEOUT_MS@@)) {
+    $Tail = if (Test-Path -LiteralPath $LogFile) { (Get-Content -LiteralPath $LogFile -Tail 80) -join [Environment]::NewLine } else { "It wrote nothing to $LogFile, so it exited before producing any output." }
+    Invoke-Native { & taskkill.exe /PID $Created.ProcessId /T /F *> $null }
+    Remove-Item -LiteralPath $PidFile, $PortFile, $ManagedFile -Force -ErrorAction SilentlyContinue
+    throw ("Remote T3 server did not become ready on 127.0.0.1:$Port." + [Environment]::NewLine + $Tail)
+  }
+}
+Write-Output ('{"remotePort":' + $Port + ',"serverKind":"' + $Kind + '"}')
+`;
+
+const WINDOWS_PAIRING_SCRIPT = `@@T3_WINDOWS_PRELUDE@@
+$T3 = Get-T3Runtime
+Invoke-Native { & $T3 auth pairing create --base-dir $T3Home --json }
+if ($LASTEXITCODE -ne 0) { throw "t3 auth pairing create exited with code $LASTEXITCODE." }
+`;
+
+// Windows has no signal to stop the server gracefully from outside, so a
+// server this connection started is ended with its process tree. A server it
+// only reused (the background service) is left alone.
+const WINDOWS_STOP_SCRIPT = `@@T3_WINDOWS_PRELUDE@@
+$ManagedPid = Read-StateFile $PidFile
+$Process = if ($ManagedPid) { Get-Process -Id $ManagedPid -ErrorAction SilentlyContinue } else { $null }
+if ((Read-StateFile $ManagedFile) -ne 'external' -and $Process -and $Process.ProcessName -eq 'cmd') {
+  Invoke-Native { & taskkill.exe /PID $ManagedPid /T /F *> $null }
+  Start-Sleep -Milliseconds 500
+  if (Get-Process -Id $ManagedPid -ErrorAction SilentlyContinue) { throw "Remote T3 server with PID $ManagedPid did not stop. Its ownership files were kept." }
+}
+Remove-Item -LiteralPath $PidFile, $PortFile, $ManagedFile -Force -ErrorAction SilentlyContinue
+Write-Output '{"stopped":true}'
+`;
+
+const WINDOWS_LOG_TAIL_SCRIPT = `@@T3_WINDOWS_PRELUDE@@
+if (Test-Path -LiteralPath $LogFile) { Get-Content -LiteralPath $LogFile -Tail 80 }
+`;
+
+function powerShellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/** `-EncodedCommand` takes base64 of UTF-16LE. */
+function encodePowerShellCommand(script: string): string {
+  let binary = "";
+  for (let index = 0; index < script.length; index++) {
+    const code = script.charCodeAt(index);
+    binary += String.fromCharCode(code & 0xff, code >> 8);
+  }
+  return btoa(binary);
+}
+
+const WINDOWS_REMOTE_COMMAND = [
+  "powershell.exe",
+  "-NoProfile",
+  "-NonInteractive",
+  "-ExecutionPolicy",
+  "Bypass",
+  "-EncodedCommand",
+  encodePowerShellCommand(WINDOWS_BOOTSTRAP),
+];
+
+function buildWindowsScript(
+  template: string,
+  stateKey: string,
+  input?: RemoteT3RunnerOptions,
+): string {
+  const releaseBaseUrl = cliReleaseDownloadBaseUrl("", input?.releaseBaseUrl ?? undefined).replace(
+    /\/v$/u,
+    "",
+  );
+  const prelude = applyScriptPlaceholders(WINDOWS_PRELUDE, {
+    T3_NODE_SCRIPT_PATH: powerShellSingleQuote(input?.nodeScriptPath?.trim() || ""),
+    T3_ARCHIVE_VERSION: powerShellSingleQuote(input?.archiveVersion?.trim() || ""),
+    T3_RELEASE_BASE_URL: powerShellSingleQuote(releaseBaseUrl),
+    T3_ARCHIVE_LOCK_WAIT_SECONDS: String(REMOTE_ARCHIVE_LOCK_WAIT_SECONDS),
+    T3_ARCHIVE_DOWNLOAD_SECONDS: String(REMOTE_ARCHIVE_DOWNLOAD_SECONDS),
+    T3_ARCHIVE_CHECKSUMS_SECONDS: String(REMOTE_ARCHIVE_CHECKSUMS_SECONDS),
+    T3_STATE_KEY: stateKey,
+  });
+  return applyScriptPlaceholders(template, {
+    T3_WINDOWS_PRELUDE: prelude,
+    T3_DEFAULT_REMOTE_PORT: String(DEFAULT_REMOTE_PORT),
+    T3_REMOTE_PORT_SCAN_WINDOW: String(REMOTE_PORT_SCAN_WINDOW),
+    T3_READY_TIMEOUT_MS: String(REMOTE_READY_TIMEOUT_MS),
+    T3_REUSE_READY_TIMEOUT_MS: String(REMOTE_REUSE_READY_TIMEOUT_MS),
+    T3_READY_PROBE_TIMEOUT_MS: String(SSH_READY_PROBE_TIMEOUT_MS),
+  });
+}
+
+export const buildWindowsRemoteLaunchScript = (stateKey: string, input?: RemoteT3RunnerOptions) =>
+  buildWindowsScript(WINDOWS_LAUNCH_SCRIPT, stateKey, input);
+export const buildWindowsRemotePairingScript = (stateKey: string, input?: RemoteT3RunnerOptions) =>
+  buildWindowsScript(WINDOWS_PAIRING_SCRIPT, stateKey, input);
+export const buildWindowsRemoteStopScript = (stateKey: string) =>
+  buildWindowsScript(WINDOWS_STOP_SCRIPT, stateKey);
+
+/** Hosts found to be Windows, by connection key, so later steps skip the POSIX attempt. */
+const windowsHosts = new Set<string>();
+
+/**
+ * Runs one remote step: the POSIX script first, unless the host is already
+ * known to be Windows. A failure the remote shell reported (any exit code but
+ * ssh's own 255) is checked once with `cmd.exe /c ver`; on Windows the step
+ * reruns as its PowerShell twin. POSIX hosts pay nothing extra on success.
+ */
+const runRemoteStep = Effect.fn("ssh/tunnel.runRemoteStep")(function* (
+  target: DesktopSshEnvironmentTarget,
+  step: {
+    readonly posixArgs: ReadonlyArray<string>;
+    readonly posixStdin: string;
+    readonly windowsStdin: () => string;
+    readonly timeoutMs?: number;
+  },
+  auth?: SshAuth.SshAuthOptions,
+): Effect.fn.Return<
+  { readonly stdout: string },
+  SshCommandError | SshInvalidTargetError,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
+  const authOptions = {
+    ...(auth?.authSecret === undefined ? {} : { authSecret: auth.authSecret }),
+    ...(auth?.batchMode === undefined ? {} : { batchMode: auth.batchMode }),
+    ...(auth?.interactiveAuth === undefined ? {} : { interactiveAuth: auth.interactiveAuth }),
+  };
+  const timeout = step.timeoutMs === undefined ? {} : { timeoutMs: step.timeoutMs };
+  const key = targetConnectionKey(target);
+  const runWindows = Effect.suspend(() =>
+    runSshCommand(target, {
+      remoteCommandArgs: WINDOWS_REMOTE_COMMAND,
+      stdin: step.windowsStdin(),
+      ...timeout,
+      ...authOptions,
+    }),
+  );
+  if (windowsHosts.has(key)) return yield* runWindows;
+  return yield* runSshCommand(target, {
+    remoteCommandArgs: step.posixArgs,
+    stdin: step.posixStdin,
+    ...timeout,
+    ...authOptions,
+  }).pipe(
+    Effect.catchTags({
+      SshCommandError: (error) =>
+        Effect.gen(function* () {
+          if (error.exitCode === null || error.exitCode === 255) return yield* error;
+          const probe = yield* runSshCommand(target, {
+            remoteCommandArgs: ["cmd.exe", "/c", "ver"],
+            timeoutMs: 15_000,
+            ...authOptions,
+          }).pipe(Effect.option);
+          if (Option.isNone(probe) || !/Windows/u.test(probe.value.stdout)) return yield* error;
+          yield* Effect.logInfo("ssh.remoteHost.windows", sshTargetLogFields(target));
+          windowsHosts.add(key);
+          return yield* runWindows;
+        }),
+    }),
+  );
+});
+
 export class SshInvalidArchiveVersionError extends Schema.TaggedError<SshInvalidArchiveVersionError>()(
   "SshInvalidArchiveVersionError",
   { archiveVersion: Schema.String },
@@ -874,16 +1180,18 @@ export const launchOrReuseRemoteServer = Effect.fn("ssh/tunnel.launchOrReuseRemo
       ...sshRunnerLogFields(runner),
       stateKey,
     });
-    const result = yield* runSshCommand(target, {
-      remoteCommandArgs: ["sh", "-l", "-s", "--", stateKey],
-      stdin: buildRemoteLaunchScript(runner),
-      timeoutMs: isNodeScriptRunner(runner)
-        ? REMOTE_LAUNCH_TIMEOUT_MS
-        : REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS,
-      ...(input?.authSecret === undefined ? {} : { authSecret: input.authSecret }),
-      ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
-      ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
-    });
+    const result = yield* runRemoteStep(
+      target,
+      {
+        posixArgs: ["sh", "-l", "-s", "--", stateKey],
+        posixStdin: buildRemoteLaunchScript(runner),
+        windowsStdin: () => buildWindowsRemoteLaunchScript(stateKey, runner),
+        timeoutMs: isNodeScriptRunner(runner)
+          ? REMOTE_LAUNCH_TIMEOUT_MS
+          : REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS,
+      },
+      input,
+    );
     if (!getLastNonEmptyOutputLine(result.stdout)) {
       return yield* new SshLaunchError({
         message: "SSH launch did not return a remote port.",
@@ -935,16 +1243,18 @@ export const issueRemotePairingToken = Effect.fn("ssh/tunnel.issueRemotePairingT
     ...sshTargetLogFields(target),
     stateKey,
   });
-  const result = yield* runSshCommand(target, {
-    remoteCommandArgs: ["sh", "-s"],
-    stdin: buildRemotePairingScript(stateKey, runner),
-    // Pairing may be the first command on a cold remote, so it can install
-    // the archive on the way.
-    ...(isNodeScriptRunner(runner) ? {} : { timeoutMs: REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS }),
-    ...(input?.authSecret === undefined ? {} : { authSecret: input.authSecret }),
-    ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
-    ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
-  });
+  const result = yield* runRemoteStep(
+    target,
+    {
+      posixArgs: ["sh", "-s"],
+      posixStdin: buildRemotePairingScript(stateKey, runner),
+      windowsStdin: () => buildWindowsRemotePairingScript(stateKey, runner),
+      // Pairing may be the first command on a cold remote, so it can install
+      // the archive on the way.
+      ...(isNodeScriptRunner(runner) ? {} : { timeoutMs: REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS }),
+    },
+    input,
+  );
   if (!getLastNonEmptyOutputLine(result.stdout)) {
     return yield* new SshPairingError({
       message: "SSH pairing did not return a credential.",
@@ -989,13 +1299,15 @@ const stopRemoteServer = Effect.fn("ssh/tunnel.stopRemoteServer")(function* (
     ...sshTargetLogFields(target),
     stateKey,
   });
-  yield* runSshCommand(target, {
-    remoteCommandArgs: ["sh", "-s"],
-    stdin: buildRemoteStopScript(stateKey),
-    ...(input?.authSecret === undefined ? {} : { authSecret: input.authSecret }),
-    ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
-    ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
-  });
+  yield* runRemoteStep(
+    target,
+    {
+      posixArgs: ["sh", "-s"],
+      posixStdin: buildRemoteStopScript(stateKey),
+      windowsStdin: () => buildWindowsRemoteStopScript(stateKey),
+    },
+    input,
+  );
   yield* Effect.logInfo("ssh.remoteServer.stop.succeeded", {
     ...sshTargetLogFields(target),
     stateKey,
@@ -1010,14 +1322,17 @@ const readRemoteServerLogTail = Effect.fn("ssh/tunnel.readRemoteServerLogTail")(
   SshCommandError | SshInvalidTargetError,
   ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | FileSystem.FileSystem | Path.Path
 > {
-  const result = yield* runSshCommand(target, {
-    remoteCommandArgs: ["sh", "-s"],
-    stdin: buildRemoteLogTailScript(yield* remoteStateKey(target)),
-    timeoutMs: 10_000,
-    ...(input?.authSecret === undefined ? {} : { authSecret: input.authSecret }),
-    ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
-    ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
-  });
+  const stateKey = yield* remoteStateKey(target);
+  const result = yield* runRemoteStep(
+    target,
+    {
+      posixArgs: ["sh", "-s"],
+      posixStdin: buildRemoteLogTailScript(stateKey),
+      windowsStdin: () => buildWindowsScript(WINDOWS_LOG_TAIL_SCRIPT, stateKey),
+      timeoutMs: 10_000,
+    },
+    input,
+  );
   return result.stdout.trim();
 });
 
