@@ -15,15 +15,16 @@ import {
 } from "@t3tools/contracts";
 import { WORKSPACE_IMAGE_PREVIEW_EXTENSIONS } from "@t3tools/shared/filePreview";
 import { resolveEditorCommand } from "@t3tools/shared/editor";
+import { currentDesktopBootstrapToken } from "@t3tools/shared/desktopBootstrapToken";
 import * as HostProcess from "@t3tools/shared/hostProcess";
 import * as NodeOS from "node:os";
+import * as Clock from "effect/Clock";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import * as DesktopBackendConfiguration from "../../backend/DesktopBackendConfiguration.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
@@ -96,7 +97,6 @@ export const getLocalEnvironmentBootstraps = DesktopIpc.makeSyncIpcMethod({
   result: Schema.Array(DesktopEnvironmentBootstrapSchema),
   handler: Effect.fn("desktop.ipc.window.getLocalEnvironmentBootstraps")(function* () {
     const pool = yield* DesktopBackendPool.DesktopBackendPool;
-    const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
     const instances = yield* pool.list;
     const bootstraps: DesktopEnvironmentBootstrap[] = [];
     for (const instance of instances) {
@@ -148,9 +148,15 @@ export const getLocalEnvironmentBootstraps = DesktopIpc.makeSyncIpcMethod({
         // the secret derives for the current window, so hand out that one
         // rather than the token frozen into its launch config. Every backend
         // the desktop launches (primary, staged or mounted WSL runtime) is the
-        // server build bundled with this desktop, so it understands the secret.
+        // server build bundled with this desktop, so it understands the secret;
+        // an attached background service keeps a secret of its own.
         ...(bootstrap.desktopBootstrapSecret
-          ? { bootstrapToken: yield* configuration.currentBootstrapToken }
+          ? {
+              bootstrapToken: currentDesktopBootstrapToken(
+                bootstrap.desktopBootstrapSecret,
+                yield* Clock.currentTimeMillis,
+              ),
+            }
           : bootstrap.desktopBootstrapToken
             ? { bootstrapToken: bootstrap.desktopBootstrapToken }
             : {}),
