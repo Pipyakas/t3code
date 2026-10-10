@@ -91,8 +91,6 @@ const DESKTOP_BACKEND_ENV_NAMES = [
   "T3CODE_DESKTOP_LAN_ACCESS",
   "T3CODE_DESKTOP_LAN_HOST",
   "T3CODE_DESKTOP_HTTPS_ENDPOINTS",
-  "T3CODE_TAILSCALE_SERVE",
-  "T3CODE_TAILSCALE_SERVE_PORT",
 ] as const;
 
 // Env vars that the WSL backend needs but Windows process.env won't forward
@@ -566,8 +564,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       host: backendExposure.bindHost,
       desktopBootstrapToken: input.bootstrapToken,
       desktopBootstrapSecret: input.bootstrapSecret,
-      tailscaleServeEnabled: backendExposure.tailscaleServeEnabled,
-      tailscaleServePort: backendExposure.tailscaleServePort,
+      // This fork never enables Tailscale; keep the bootstrap fields for compatibility.
+      tailscaleServeEnabled: false,
+      tailscaleServePort: 443,
       desktopTelemetryFd: 4,
       desktopTelemetryControlFd: 5,
       desktopBrowserFd: 6,
@@ -634,7 +633,7 @@ function attachedPrimaryStartConfig(
       desktopBootstrapToken: currentDesktopBootstrapToken(secret, nowMs),
       desktopBootstrapSecret: secret,
       tailscaleServeEnabled: false,
-      tailscaleServePort: port,
+      tailscaleServePort: 443,
     },
     bootstrapDelivery: "fd3",
     httpBaseUrl,
@@ -683,10 +682,6 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     host: wslBindHost,
     desktopBootstrapToken: input.bootstrapToken,
     desktopBootstrapSecret: input.bootstrapSecret,
-    // PortSchema rejects 0, so when tailscale serve is disabled we still
-    // need a valid number in this slot. The backend reads tailscaleServePort
-    // only when tailscaleServeEnabled is true, so the actual value here is
-    // inert.
     tailscaleServeEnabled: false,
     tailscaleServePort: 443,
     // The packaged sidecar is a Windows executable and cannot run inside the

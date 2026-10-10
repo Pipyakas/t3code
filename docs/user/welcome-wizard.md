@@ -16,9 +16,8 @@ You can add more computers before continuing:
   [Install the CLI](./install.md#command-line) and run `t3 connect` on each
   computer you want to add, then start T3 Code or run `t3 serve` so the
   computer stays available.
-- **Add a computer** connects directly to a server on your network or tailnet.
-  Start the server with `t3 serve`, then run `t3 pair --tailscale` and paste
-  the pairing link. You can also run `t3 serve --host <address>` and use
+- **Add a computer** connects directly to a server on your network. Start the
+  server with `t3 serve`, then run `t3 pair` and paste the pairing link. You can also run
   `t3 pair` when the server is already reachable on your network.
 
 Saved computers and computers discovered through T3 Connect are selected by

@@ -267,7 +267,7 @@ export function ConnectionsNewRouteScreen({
               )}
             >
               {pairingConnectionError ??
-                "For machines on your local network or tailnet. The machine keeps its own provider credentials."}
+                "For machines on your local network. The machine keeps its own provider credentials."}
             </Text>
           </View>
 

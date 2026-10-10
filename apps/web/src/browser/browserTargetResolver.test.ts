@@ -27,7 +27,7 @@ describe("browser target resolver", () => {
     });
   });
 
-  it("preserves explicit loopback URL navigation for a remote Tailscale environment", async () => {
+  it("preserves explicit loopback URL navigation for a remote environment", async () => {
     readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://100.65.180.100:3773" });
     const { resolveBrowserNavigationTarget } = await import("./browserTargetResolver");
     expect(
