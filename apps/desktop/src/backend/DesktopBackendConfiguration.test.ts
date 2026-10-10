@@ -227,6 +227,52 @@ const withPackagedWslHarness = <A, E, R>(
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
 describe("DesktopBackendConfiguration", () => {
+  it.effect("resolvePrimary attaches to a running background service and stays attached", () =>
+    withHarness(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+        const runtimeStatePath = path.join(environment.stateDir, "server-runtime.json");
+        const writeRuntimeState = (serviceManaged: boolean) =>
+          fileSystem.writeFileString(
+            runtimeStatePath,
+            JSON.stringify({
+              version: 1,
+              pid: process.pid,
+              port: 3773,
+              origin: "http://127.0.0.1:3773",
+              startedAt: "2026-10-10T00:00:00.000Z",
+              serviceManaged,
+            }),
+          );
+        yield* fileSystem.makeDirectory(path.join(environment.stateDir, "secrets"), {
+          recursive: true,
+        });
+        yield* fileSystem.writeFile(
+          path.join(environment.stateDir, "secrets", "background-service-desktop-secret.bin"),
+          new Uint8Array(32).fill(7),
+        );
+
+        // A server the user started by hand is not the service; the desktop
+        // still runs its own.
+        yield* writeRuntimeState(false);
+        assert.isUndefined((yield* configuration.resolvePrimary).attached);
+
+        yield* writeRuntimeState(true);
+        const attached = yield* configuration.resolvePrimary;
+        assert.equal(attached.attached, true);
+        assert.equal(attached.httpBaseUrl.href, "http://127.0.0.1:3773/");
+        assert.equal(attached.bootstrap.desktopBootstrapSecret, "07".repeat(32));
+
+        // A restarting service has no runtime file for a moment.
+        yield* fileSystem.remove(runtimeStatePath);
+        assert.equal((yield* configuration.resolvePrimary).attached, true);
+      }),
+    ),
+  );
+
   it.effect("resolvePrimary produces a stable scoped bootstrap token", () =>
     withHarness(
       Effect.gen(function* () {
@@ -262,18 +308,13 @@ describe("DesktopBackendConfiguration", () => {
           second.bootstrap.desktopBootstrapSecret,
           first.bootstrap.desktopBootstrapSecret,
         );
-        // The launch token is the secret's token for the current window, and
-        // the renderer is handed the same one.
+        // The launch token is the secret's token for the current window.
         assert.equal(
           first.bootstrap.desktopBootstrapToken,
           currentDesktopBootstrapToken(
             first.bootstrap.desktopBootstrapSecret ?? "",
             yield* Clock.currentTimeMillis,
           ),
-        );
-        assert.equal(
-          yield* configuration.currentBootstrapToken,
-          first.bootstrap.desktopBootstrapToken,
         );
       }),
     ),

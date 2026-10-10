@@ -1,22 +1,35 @@
 import { AuthAdministrativeScopes, AuthStandardClientScopes } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it } from "@effect/vitest";
+import { assert, expect, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as Queue from "effect/Queue";
 import * as TestClock from "effect/testing/TestClock";
 import {
+  BACKGROUND_SERVICE_DESKTOP_SECRET_NAME,
   DESKTOP_BOOTSTRAP_TOKEN_WINDOW_MS,
   currentDesktopBootstrapToken,
 } from "@t3tools/shared/desktopBootstrapToken";
+import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as Hex from "effect/encoding/Hex";
+
+import packageJson from "../../package.json" with { type: "json" };
+import { ServiceLauncherHostProcess } from "../cloud/serviceLauncherClient.ts";
+import {
+  SERVICE_LAUNCHER_CONTEXT_ENV,
+  SERVICE_LAUNCHER_PROTOCOL,
+} from "../cloud/serviceProtocol.ts";
 
 import * as ServerConfig from "../config.ts";
 import * as AuthPairingLinks from "../persistence/AuthPairingLinks.ts";
 import { PersistenceSqlError } from "../persistence/Errors.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
+import * as ServerSecretStore from "./ServerSecretStore.ts";
 
 const layerServerConfig = (
   overrides?: Partial<
@@ -43,8 +56,26 @@ const layerPairingGrantStore = (
 ) =>
   PairingGrantStore.layer.pipe(
     Layer.provide(SqlitePersistence.layerMemory),
+    Layer.provideMerge(ServerSecretStore.layer),
     Layer.provide(layerServerConfig(overrides)),
   );
+
+// What a server started by the `t3 service` launcher sees.
+const layerServiceLauncherChild = Layer.mergeAll(
+  Layer.succeed(ServiceLauncherHostProcess, {
+    connected: true,
+    send: () => true,
+    on: () => undefined,
+    off: () => undefined,
+    requestShutdown: () => undefined,
+  }),
+  Layer.succeed(HostProcessEnvironment, {
+    [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify({
+      protocol: SERVICE_LAUNCHER_PROTOCOL,
+      childVersion: packageJson.version,
+    }),
+  }),
+);
 
 const layerPairingGrantStoreTest = (
   overrides: Partial<AuthPairingLinks.AuthPairingLinkRepository["Service"]>,
@@ -63,6 +94,7 @@ const layerPairingGrantStoreTest = (
         }),
       ),
     ),
+    Layer.provide(ServerSecretStore.layer),
     Layer.provide(layerServerConfig()),
   );
 
@@ -237,6 +269,33 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
         ),
       ),
     ),
+  );
+
+  it.effect("lets a desktop attach to a background service with the service's stored secret", () =>
+    Effect.gen(function* () {
+      const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
+      const secretStore = yield* ServerSecretStore.ServerSecretStore;
+      const stored = yield* secretStore.get(BACKGROUND_SERVICE_DESKTOP_SECRET_NAME);
+      assert(Option.isSome(stored));
+
+      const grant = yield* bootstrapCredentials.consume(
+        currentDesktopBootstrapToken(Hex.encode(stored.value), yield* Clock.currentTimeMillis),
+      );
+      expect(grant.method).toBe("desktop-bootstrap");
+      expect(grant.scopes).toEqual(AuthAdministrativeScopes);
+    }).pipe(
+      Effect.provide(layerPairingGrantStore().pipe(Layer.provide(layerServiceLauncherChild))),
+    ),
+  );
+
+  it.effect("keeps no desktop secret for a server outside the background service", () =>
+    Effect.gen(function* () {
+      const secretStore = yield* ServerSecretStore.ServerSecretStore;
+      yield* PairingGrantStore.PairingGrantStore;
+      expect(Option.isNone(yield* secretStore.get(BACKGROUND_SERVICE_DESKTOP_SECRET_NAME))).toBe(
+        true,
+      );
+    }).pipe(Effect.provide(layerPairingGrantStore())),
   );
 
   it.effect("keeps credentials out of pairing lists and change events", () =>

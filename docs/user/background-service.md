@@ -69,6 +69,14 @@ reach:
 T3 Connect can offer service installation during setup, but the two are managed
 separately. Signing out of T3 Connect does not stop or uninstall the service.
 
+## With the desktop app
+
+When the desktop app opens while the service is running on the same machine,
+it uses the service instead of starting its own server, and quitting the app
+leaves the service running. Quit the app before `t3 service install`, then
+reopen it. The app's network access settings do not change the service's
+address.
+
 ## Troubleshooting
 
 Start with `t3 service status` on the host. It prints the log path and, on Linux
