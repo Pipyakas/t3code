@@ -44,6 +44,7 @@ import {
   preflightMacDesktopBuild,
   preflightWindowsDesktopBuild,
   renderMacPasskeyEntitlements,
+  resolveClerkPasskeyNativeArtifacts,
   resolveMacWebAuthnEntitlements,
   resolveMacPasskeySigningConfiguration,
   resolveDesktopRuntimeDependencies,
@@ -2122,6 +2123,26 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.notProperty(win, "azureSignOptions");
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
+
+  it("resolves target Clerk passkey native artifacts", () => {
+    assert.deepStrictEqual(resolveClerkPasskeyNativeArtifacts("mac", "universal"), [
+      {
+        packageName: "@clerk/electron-passkeys-darwin-arm64",
+        binaryFileName: "electron-passkeys.darwin-arm64.node",
+      },
+      {
+        packageName: "@clerk/electron-passkeys-darwin-x64",
+        binaryFileName: "electron-passkeys.darwin-x64.node",
+      },
+    ]);
+    assert.deepStrictEqual(resolveClerkPasskeyNativeArtifacts("win", "x64"), [
+      {
+        packageName: "@clerk/electron-passkeys-win32-x64-msvc",
+        binaryFileName: "electron-passkeys.win32-x64-msvc.node",
+      },
+    ]);
+    assert.deepStrictEqual(resolveClerkPasskeyNativeArtifacts("linux", "x64"), []);
+  });
 
   it("stages the resource monitor as an external executable resource", () => {
     assert.deepStrictEqual(DESKTOP_EXTRA_RESOURCES, [

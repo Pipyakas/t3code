@@ -1,5 +1,8 @@
 # Remote access
 
+In this build, T3 Connect is available only for connecting to other machines. This machine cannot be
+linked to T3 Connect or reached through it.
+
 Connect a phone, browser, or another desktop app to T3 Code running on a different
 machine. That machine must stay running and reachable while you work.
 

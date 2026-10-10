@@ -518,9 +518,9 @@ function ConnectAccountOption({
               ) : null}
             </div>
             <p className="text-sm text-muted-foreground">
-              Run this on each computer you want to connect.
+              Sign in with the same T3 account on each computer you want to connect, then choose it
+              above. This build cannot publish the computer running this app through T3 Connect.
             </p>
-            <CommandBlock command="npx t3 connect" className="mt-3" />
             <p className="mt-3 text-xs text-muted-foreground">
               Keep T3 Code running. Select the computers you want to set up above.
             </p>

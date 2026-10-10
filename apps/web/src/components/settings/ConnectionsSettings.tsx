@@ -1941,7 +1941,9 @@ function CloudLinkRow({
   readonly canManageRelay: boolean;
 }) {
   if (!hasCloudPublicConfig()) return null;
-  if (!canReadRelay) {
+  // This fork uses T3 Connect only as a client; it cannot host this environment.
+  const hostControlsEnabled = false;
+  if (hostControlsEnabled && !canReadRelay) {
     return (
       <SettingsRow
         title="T3 Connect"
@@ -1949,7 +1951,7 @@ function CloudLinkRow({
       />
     );
   }
-  return <ConfiguredCloudLinkRow canManageRelay={canManageRelay} />;
+  return hostControlsEnabled ? <ConfiguredCloudLinkRow canManageRelay={canManageRelay} /> : null;
 }
 
 function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnabled?: boolean }) {
