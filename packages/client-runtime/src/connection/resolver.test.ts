@@ -329,7 +329,7 @@ describe("ConnectionResolver", () => {
     }),
   );
 
-  it.effect("blocks saved relay connections before authorization", () =>
+  it.effect("prepares relay connections without product relay tracing", () =>
     Effect.gen(function* () {
       const target = new RelayConnectionTarget({
         environmentId: ENVIRONMENT_ID,
@@ -338,13 +338,22 @@ describe("ConnectionResolver", () => {
       const layerBroker = yield* makeDependencies();
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layerBroker));
 
-      const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
-      expect(error._tag).toBe("ConnectionBlockedError");
-      expect(error.message).toContain("T3 Connect is removed");
+      expect(yield* broker.prepare(catalogEntry(target))).toEqual({
+        environmentId: ENVIRONMENT_ID,
+        label: "Authorized relay environment",
+        httpBaseUrl: ENDPOINT.httpBaseUrl,
+        socketUrl: `wss://authorized.example.test/ws?wsTicket=dpop&orchestrationProtocol=${ORCHESTRATION_PROTOCOL_VERSION}`,
+        httpAuthorization: {
+          _tag: "Dpop",
+          accessToken: "dpop-access-token",
+          expiresAtEpochMs: Number.MAX_SAFE_INTEGER,
+        },
+        target,
+      });
     }),
   );
 
-  it.effect("does not authorize or export saved relay connections", () =>
+  it.effect("prepares relay connections with the authorized endpoint and credentials", () =>
     Effect.gen(function* () {
       const userSpans: Array<string> = [];
       const productSpans: Array<string> = [];
@@ -368,17 +377,27 @@ describe("ConnectionResolver", () => {
       });
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layerBroker));
 
-      yield* broker
+      const prepared = yield* broker
         .prepare(catalogEntry(target))
         .pipe(
           Effect.provideService(RelayClientTracer, Option.some(collectingTracer(productSpans))),
           Effect.withTracer(collectingTracer(userSpans)),
-          Effect.flip,
         );
 
+      expect(prepared).toEqual({
+        environmentId: ENVIRONMENT_ID,
+        label: "Cloud",
+        httpBaseUrl: ENDPOINT.httpBaseUrl,
+        socketUrl: "wss://environment.example.test/ws?wsTicket=dpop&orchestrationProtocol=2",
+        httpAuthorization: {
+          _tag: "Dpop",
+          accessToken: "dpop-access-token",
+          expiresAtEpochMs: Number.MAX_SAFE_INTEGER,
+        },
+        target,
+      });
       expect(productSpans).toEqual([]);
       expect(userSpans).toContain("clientRuntime.connection.broker.prepare");
-      expect(userSpans).not.toContain("test.remote.authorizeDpop");
     }),
   );
 
@@ -530,7 +549,7 @@ describe("ConnectionResolver", () => {
       }),
   );
 
-  it.effect("rejects relay connections without calling remote authorization", () =>
+  it.effect("preserves relay authorization failure classification and trace details", () =>
     Effect.gen(function* () {
       const target = new RelayConnectionTarget({
         environmentId: ENVIRONMENT_ID,
@@ -547,8 +566,7 @@ describe("ConnectionResolver", () => {
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layerBroker));
       const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
 
-      expect(error._tag).toBe("ConnectionBlockedError");
-      expect(error.message).toContain("T3 Connect is removed");
+      expect(error).toBe(authorizationError);
     }),
   );
 });

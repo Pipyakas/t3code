@@ -198,6 +198,12 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@clerk/electron':
+        specifier: 0.0.44
+        version: 0.0.44(@clerk/electron-passkeys@0.0.3)(electron-store@8.2.0)(electron@44.4.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@clerk/electron-passkeys':
+        specifier: 0.0.3
+        version: 0.0.3
       '@crowecawcaw/xa11y':
         specifier: 0.13.0
         version: 0.13.0
@@ -219,9 +225,6 @@ importers:
       '@t3tools/ssh':
         specifier: workspace:*
         version: link:../../packages/ssh
-      '@t3tools/tailscale':
-        specifier: workspace:*
-        version: link:../../packages/tailscale
       dbus-next:
         specifier: 0.10.2
         version: 0.10.2(patch_hash=cfff57561b0ee59b5addb3b2e6c6f20906e967507a530ab67e8db8108e520ba4)
@@ -679,9 +682,6 @@ importers:
       '@t3tools/ssh':
         specifier: workspace:*
         version: link:../../packages/ssh
-      '@t3tools/tailscale':
-        specifier: workspace:*
-        version: link:../../packages/tailscale
       '@t3tools/web':
         specifier: workspace:*
         version: link:../web
@@ -1538,9 +1538,6 @@ importers:
       '@t3tools/shared':
         specifier: workspace:*
         version: link:../packages/shared
-      '@t3tools/tailscale':
-        specifier: workspace:*
-        version: link:../packages/tailscale
       effect:
         specifier: 4.0.2
         version: 4.0.2(patch_hash=ec61ee307eaec3e17f757e0e6a16296ea4b7a8c3188df0c6ec5e66301fd78688)
@@ -13152,7 +13149,6 @@ snapshots:
       '@clerk/electron-passkeys-darwin-x64': 0.0.3
       '@clerk/electron-passkeys-win32-arm64-msvc': 0.0.3
       '@clerk/electron-passkeys-win32-x64-msvc': 0.0.3
-    optional: true
 
   '@clerk/electron@0.0.44(@clerk/electron-passkeys@0.0.3)(electron-store@8.2.0)(electron@44.4.5)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
@@ -13166,6 +13162,19 @@ snapshots:
       '@clerk/electron-passkeys': 0.0.3
       electron-store: 8.2.0
       react-dom: 19.2.6(react@19.2.6)
+
+  '@clerk/electron@0.0.44(@clerk/electron-passkeys@0.0.3)(electron-store@8.2.0)(electron@44.4.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@clerk/clerk-js': 6.32.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@clerk/react': 6.16.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@clerk/shared': 4.33.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      electron: 44.4.5
+      react: 19.3.0
+      tslib: 2.8.1
+    optionalDependencies:
+      '@clerk/electron-passkeys': 0.0.3
+      electron-store: 8.2.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@clerk/expo@4.6.8(patch_hash=b8b22ab733de5bea846ad9e88046c10582352fe9ad86f314f368b2a823f0f281)(9fda653cb5598772915b4a39a7aee91d)':
     dependencies:

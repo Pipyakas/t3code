@@ -91,6 +91,10 @@ jobs:
           T3CODE_DESKTOP_SIGNED: "false"
           T3CODE_DESKTOP_WSL_RUNTIME: ""
           T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          # T3's public client config; this fork uses T3 Connect only as a client.
+          T3CODE_CLERK_PUBLISHABLE_KEY: "pk_live_Y2xlcmsudDMuY29kZXMk"
+          T3CODE_CLERK_JWT_TEMPLATE: "t3-relay"
+          T3CODE_RELAY_URL: "https://relay.t3.codes"
         run: |
           node scripts/update-release-package-versions.ts "${{ steps.meta.outputs.version }}"
           node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 \
