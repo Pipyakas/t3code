@@ -14,7 +14,7 @@ import {
   DESKTOP_BOOTSTRAP_TOKEN_WINDOW_MS,
   currentDesktopBootstrapToken,
 } from "@t3tools/shared/desktopBootstrapToken";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Hex from "effect/encoding/Hex";
 
 import packageJson from "../../package.json" with { type: "json" };
@@ -69,7 +69,7 @@ const layerServiceLauncherChild = Layer.mergeAll(
     off: () => undefined,
     requestShutdown: () => undefined,
   }),
-  Layer.succeed(HostProcessEnvironment, {
+  Layer.succeed(HostProcess.Environment, {
     [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify({
       protocol: SERVICE_LAUNCHER_PROTOCOL,
       childVersion: packageJson.version,
