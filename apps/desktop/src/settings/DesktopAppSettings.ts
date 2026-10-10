@@ -167,10 +167,6 @@ export class DesktopAppSettings extends Context.Service<
     readonly setServerExposureMode: (
       mode: DesktopServerExposureMode,
     ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
-    readonly setTailscaleServe: (input: {
-      readonly enabled: boolean;
-      readonly port: Option.Option<number>;
-    }) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
     readonly setUpdateChannel: (
       channel: DesktopUpdateChannel,
     ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
@@ -272,12 +268,6 @@ function toDesktopSettingsDocument(
   if (settings.serverExposureMode !== defaults.serverExposureMode) {
     document.serverExposureMode = settings.serverExposureMode;
   }
-  if (settings.tailscaleServeEnabled !== defaults.tailscaleServeEnabled) {
-    document.tailscaleServeEnabled = settings.tailscaleServeEnabled;
-  }
-  if (settings.tailscaleServePort !== defaults.tailscaleServePort) {
-    document.tailscaleServePort = settings.tailscaleServePort;
-  }
   if (settings.updateChannel !== defaults.updateChannel) {
     document.updateChannel = settings.updateChannel;
   }
@@ -322,23 +312,6 @@ function setMainWindowBounds(
         ...settings,
         mainWindowBounds: bounds,
         mainWindowMaximized: isMaximized,
-      };
-}
-
-function setTailscaleServe(
-  settings: DesktopSettings,
-  input: { readonly enabled: boolean; readonly port: Option.Option<number> },
-): DesktopSettings {
-  const port = Option.match(input.port, {
-    onNone: () => settings.tailscaleServePort,
-    onSome: normalizeTailscaleServePort,
-  });
-  return settings.tailscaleServeEnabled === input.enabled && settings.tailscaleServePort === port
-    ? settings
-    : {
-        ...settings,
-        tailscaleServeEnabled: input.enabled,
-        tailscaleServePort: port,
       };
 }
 
@@ -554,10 +527,6 @@ export const make = Effect.gen(function* () {
       persist((settings) => setServerExposureMode(settings, mode)).pipe(
         Effect.withSpan("desktop.settings.setServerExposureMode", { attributes: { mode } }),
       ),
-    setTailscaleServe: (input) =>
-      persist((settings) => setTailscaleServe(settings, input)).pipe(
-        Effect.withSpan("desktop.settings.setTailscaleServe", { attributes: input }),
-      ),
     setUpdateChannel: (channel) =>
       persist((settings) => setUpdateChannel(settings, channel)).pipe(
         Effect.withSpan("desktop.settings.setUpdateChannel", { attributes: { channel } }),
@@ -615,7 +584,6 @@ export const layerTest = (initialSettings: DesktopSettings = DEFAULT_DESKTOP_SET
           update((settings) => setMainWindowBounds(settings, bounds, isMaximized)),
         setServerExposureMode: (mode) =>
           update((settings) => setServerExposureMode(settings, mode)),
-        setTailscaleServe: (input) => update((settings) => setTailscaleServe(settings, input)),
         setUpdateChannel: (channel) => update((settings) => setUpdateChannel(settings, channel)),
         setWslBackendEnabled: (enabled) =>
           update((settings) => setWslBackendEnabled(settings, enabled)),

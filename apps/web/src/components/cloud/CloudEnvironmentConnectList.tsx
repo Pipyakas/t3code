@@ -49,7 +49,7 @@ function discoveredCompatibilityError(
 export interface SavedCloudEnvironmentConnection {
   readonly environmentId: EnvironmentId;
   readonly connection: EnvironmentConnectionPresentation;
-  /** False for a machine saved over another route (LAN, Tailscale, SSH) only. */
+  /** False for a machine saved over another route (LAN or SSH) only. */
   readonly relayManaged: boolean;
   /** Present once connected; carries the user's icon override. */
   readonly serverConfig?: ServerConfig | null;

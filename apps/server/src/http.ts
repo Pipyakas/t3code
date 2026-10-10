@@ -242,7 +242,7 @@ export const layerBrowserApiCors = Layer.unwrap(
     // explicit. Packaged desktop omits credentials and uses Effect's default wildcard origin.
     //
     // T3CODE_DEV_ALLOWED_ORIGINS covers dev servers reached from a second
-    // origin — a tailnet name, a LAN IP, a phone. Browser dev normally proxies
+    // origin — a LAN IP or a phone. Browser dev normally proxies
     // through Vite and is same-origin (no preflight at all), so this is a
     // safety net for the desktop renderer and any direct-to-backend caller.
     return HttpRouter.cors({
