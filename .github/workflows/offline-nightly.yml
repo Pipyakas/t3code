@@ -7,6 +7,9 @@ name: Offline nightly
 on:
   push:
     branches: [main]
+  # Rebuild daily so the version always carries today's date (see meta below).
+  schedule:
+    - cron: "17 0 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -75,13 +78,17 @@ jobs:
             -Wait -PassThru -NoNewWindow
           if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
 
+      # Upstream clients ask to update any nightly server older than themselves.
+      # Upstream's run numbers are in the thousands, so offset ours far past
+      # them: a fork build then outranks every upstream build of the same date,
+      # and the daily schedule keeps that date current.
       - id: meta
         name: Resolve nightly version
         shell: bash
         run: |
           node scripts/resolve-nightly-release.ts \
             --date "$(date -u +%Y%m%d)" \
-            --run-number "${{ github.run_number }}" \
+            --run-number "$((1000000 + ${{ github.run_number }}))" \
             --sha "${{ github.sha }}" \
             --github-output
 
