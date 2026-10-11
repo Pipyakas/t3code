@@ -30,6 +30,7 @@ import { CodexDriver, type CodexDriverEnv } from "./Drivers/CodexDriver.ts";
 import { CursorDriver, type CursorDriverEnv } from "@t3tools/provider-cursor/server";
 import { GrokDriver, type GrokDriverEnv } from "@t3tools/provider-grok/server";
 import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
+import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import type {
   AnyProviderDriver,
   ProviderUsageReaderEnv,
@@ -60,10 +61,16 @@ export type BuiltInUsageReadersEnv =
   | ProviderUsageReaderEnv<typeof GrokDriver>
   | ProviderUsageReaderEnv<typeof OpenCodeDriver>
   | ProviderUsageReaderEnv<typeof AntigravityDriver>
-  | ProviderUsageReaderEnv<typeof CursorDriver>;
+  | ProviderUsageReaderEnv<typeof CursorDriver>
+  | ProviderUsageReaderEnv<typeof PiDriver>;
 
 /** Drivers listed only for their usage readers; none of them can be instantiated here. */
-type UsageOnlyDriversEnv = AntigravityDriverEnv | CodexDriverEnv | CursorDriverEnv | GrokDriverEnv;
+type UsageOnlyDriversEnv =
+  | AntigravityDriverEnv
+  | CodexDriverEnv
+  | CursorDriverEnv
+  | GrokDriverEnv
+  | PiDriverEnv;
 
 /**
  * The drivers that keep usage history, in the order the usage page reads
@@ -72,4 +79,12 @@ type UsageOnlyDriversEnv = AntigravityDriverEnv | CodexDriverEnv | CursorDriverE
  */
 export const BUILT_IN_USAGE_DRIVERS: ReadonlyArray<
   AnyProviderDriver<BuiltInDriversEnv | UsageOnlyDriversEnv, BuiltInUsageReadersEnv>
-> = [ClaudeDriver, CodexDriver, GrokDriver, OpenCodeDriver, AntigravityDriver, CursorDriver];
+> = [
+  ClaudeDriver,
+  CodexDriver,
+  GrokDriver,
+  PiDriver,
+  OpenCodeDriver,
+  AntigravityDriver,
+  CursorDriver,
+];
