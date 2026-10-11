@@ -7,9 +7,6 @@ name: Offline nightly
 on:
   push:
     branches: [main]
-  # Rebuild daily so the version always carries today's date (see meta below).
-  schedule:
-    - cron: "17 0 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -78,19 +75,43 @@ jobs:
             -Wait -PassThru -NoNewWindow
           if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
 
-      # Upstream clients ask to update any nightly server older than themselves.
-      # Upstream's run numbers are in the thousands, so offset ours far past
-      # them: a fork build then outranks every upstream build of the same date,
-      # and the daily schedule keeps that date current.
+      # Clients ask to update any nightly server older than themselves, so the
+      # fork releases under the newest upstream nightly already merged here.
+      # Matching it exactly keeps both upstream and fork clients quiet; later
+      # fork releases on the same upstream base step its run number by one,
+      # which stays below upstream's next nightly (its runs are 6+ apart).
       - id: meta
         name: Resolve nightly version
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM: pingdotgg/t3code
         run: |
-          node scripts/resolve-nightly-release.ts \
-            --date "$(date -u +%Y%m%d)" \
-            --run-number "$((1000000 + ${{ github.run_number }}))" \
-            --sha "${{ github.sha }}" \
-            --github-output
+          set -euo pipefail
+          nightly='^v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$'
+          nightlies() { gh release list -R "$1" -L 50 --json tagName -q '.[].tagName' | grep -E "$nightly" | sort -rV || true; }
+
+          base=""
+          for tag in $(nightlies "$UPSTREAM"); do
+            sha=$(gh api "repos/$UPSTREAM/commits/$tag" -q .sha)
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...$GITHUB_SHA" -q .status 2>/dev/null || true)
+            if [ "$status" = ahead ] || [ "$status" = identical ]; then base=${tag#v}; break; fi
+            echo "::warning::Upstream $tag is not merged yet; sync upstream before releasing."
+          done
+          [ -n "$base" ] || { echo "::error::No upstream nightly is merged into this commit."; exit 1; }
+
+          fork=$(nightlies "$GITHUB_REPOSITORY" | head -n 1); fork=${fork#v}
+          if [ -z "$fork" ] || [ "$(printf '%s\n%s\n' "$fork" "$base" | sort -V | tail -n 1)" != "$fork" ]; then
+            version=$base
+          else
+            version="${fork%.*}.$(( ${fork##*.} + 1 ))"
+          fi
+          echo "upstream base $base, previous fork release ${fork:-none}, releasing $version"
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "name=T3 Code Nightly $version (${GITHUB_SHA:0:12})"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build installer
         shell: bash
