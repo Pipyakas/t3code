@@ -108,6 +108,8 @@ vi.mock("../../hooks/useSettings", () => ({
     settingsState.updateEnvironmentIds.push(environmentId);
     return settingsState.updateSettings;
   },
+  useUpdateEnvironmentModelPreferences: () => settingsState.updateSettings,
+  useToggleEnvironmentModelFavorite: () => () => undefined,
   usePersistEnvironmentProviderInstanceMutation: (environmentId: EnvironmentId) => {
     settingsState.mutationEnvironmentIds.push(environmentId);
     return settingsState.mutateProviderInstance;
@@ -138,6 +140,7 @@ vi.mock("../../state/session", () => ({
 
 vi.mock("../../state/entities", () => ({
   useProjects: () => [],
+  useServerConfigs: () => new Map(),
 }));
 
 import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
@@ -352,18 +355,19 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it.each([
-    ["onFavoriteModelsChange", { favorites: [{ provider: defaultId, model: "chosen" }] }],
+    [
+      "onFavoriteModelsChange",
+      { setModelFavorites: [{ provider: defaultId, model: "chosen", favorite: true }] },
+    ],
     [
       "onHiddenModelsChange",
-      {
-        providerModelPreferences: { [defaultId]: { hiddenModels: ["chosen"], modelOrder: [] } },
-      },
+      { setModelsHidden: [{ provider: defaultId, model: "chosen", hidden: true }] },
     ],
     [
       "onModelOrderChange",
-      { providerModelPreferences: { [defaultId]: { hiddenModels: [], modelOrder: ["chosen"] } } },
+      { setProviderModelOrder: { provider: defaultId, modelOrder: ["chosen"] } },
     ],
-  ])("saves %s on this device without changing the selected server", (action, expected) => {
+  ])("saves %s on the selected environment for every connected client", (action, expected) => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -381,8 +385,8 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(editor).not.toBeNull();
     if (!editor) throw new Error("Provider editor was not rendered");
     (editor.props[action] as (models: string[]) => void)(["chosen"]);
-    expect(settingsState.updateClientSettings).toHaveBeenCalledExactlyOnceWith(expected);
-    expect(settingsState.updateSettings).not.toHaveBeenCalled();
+    expect(settingsState.updateSettings).toHaveBeenCalledExactlyOnceWith(expected);
+    expect(settingsState.updateClientSettings).not.toHaveBeenCalled();
   });
 
   it("does not substitute another account when the requested instance was removed", () => {

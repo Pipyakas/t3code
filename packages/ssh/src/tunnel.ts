@@ -241,8 +241,7 @@ function applyScriptPlaceholders(
 ): string {
   let result = template;
   for (const [token, value] of Object.entries(replacements)) {
-    // A function replacer: script text is full of `$`, which a string
-    // replacement would read as `$&`, `$'`, and similar patterns.
+    // A replacer function keeps `$$` and other `$` patterns in the value literal.
     result = result.replaceAll(`@@${token}@@`, () => value);
   }
   return result;
