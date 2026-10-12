@@ -109,6 +109,7 @@ jobs:
           echo "upstream base $base, previous fork release ${fork:-none}, releasing $version"
           {
             echo "version=$version"
+            echo "upstream=$base"
             echo "tag=v$version"
             echo "name=T3 Code Nightly $version (${GITHUB_SHA:0:12})"
           } >> "$GITHUB_OUTPUT"
@@ -119,6 +120,8 @@ jobs:
           T3CODE_DESKTOP_SIGNED: "false"
           T3CODE_DESKTOP_WSL_RUNTIME: ""
           T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          # Clients compare upstream servers against this, not the fork's own version.
+          T3CODE_UPSTREAM_VERSION: ${{ steps.meta.outputs.upstream }}
           # T3's public client config; this fork uses T3 Connect only as a client.
           T3CODE_CLERK_PUBLISHABLE_KEY: "pk_live_Y2xlcmsudDMuY29kZXMk"
           T3CODE_CLERK_JWT_TEMPLATE: "t3-relay"
@@ -135,6 +138,7 @@ jobs:
         env:
           # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
           VP_NODE_VERSION: "26.8.2"
+          T3CODE_UPSTREAM_VERSION: ${{ steps.meta.outputs.upstream }}
         run: node apps/server/scripts/cli.ts build-exe --verbose
 
       - name: Build CLI archive

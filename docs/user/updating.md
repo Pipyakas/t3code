@@ -47,6 +47,10 @@ The offered action depends on how the server runs:
 | **Copy update command**    | Run the command on the named host to update the detected global npm install, then restart the server with your usual options.                                                                   |
 | **Copy relaunch command**  | Stop the command-line server on its host and relaunch with the copied command, keeping your usual subcommand and options. This does not update an installed `t3` command.                       |
 
+To stop this device offering updates for a machine, for example one that runs a different T3 Code
+build, choose **Ignore version updates** from its menu in **Settings → Connections**. Choose
+**Show version updates** to undo it. A server too old to connect at all is still blocked.
+
 On the host, run:
 
 ```sh
