@@ -94,6 +94,13 @@ jobs:
     needs: meta
     runs-on: windows-latest
     timeout-minutes: 60
+    # T3's public client config for T3 Connect. The desktop app and the server
+    # executable both build it in; without it the server cannot host.
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: "pk_live_Y2xlcmsudDMuY29kZXMk"
+      T3CODE_CLERK_JWT_TEMPLATE: "t3-relay"
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "hzxSgY2cH10sDU2r"
+      T3CODE_RELAY_URL: "https://relay.t3.codes"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -135,10 +142,6 @@ jobs:
           T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
           # Clients compare upstream servers against this, not the fork's own version.
           T3CODE_UPSTREAM_VERSION: ${{ needs.meta.outputs.upstream }}
-          # T3's public client config for T3 Connect.
-          T3CODE_CLERK_PUBLISHABLE_KEY: "pk_live_Y2xlcmsudDMuY29kZXMk"
-          T3CODE_CLERK_JWT_TEMPLATE: "t3-relay"
-          T3CODE_RELAY_URL: "https://relay.t3.codes"
         run: |
           node scripts/update-release-package-versions.ts "${{ needs.meta.outputs.version }}"
           node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 \
@@ -184,6 +187,13 @@ jobs:
     needs: meta
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # T3's public client config for T3 Connect. The desktop app and the server
+    # executable both build it in; without it the server cannot host.
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: "pk_live_Y2xlcmsudDMuY29kZXMk"
+      T3CODE_CLERK_JWT_TEMPLATE: "t3-relay"
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "hzxSgY2cH10sDU2r"
+      T3CODE_RELAY_URL: "https://relay.t3.codes"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -216,9 +226,6 @@ jobs:
         env:
           T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
           T3CODE_UPSTREAM_VERSION: ${{ needs.meta.outputs.upstream }}
-          T3CODE_CLERK_PUBLISHABLE_KEY: "pk_live_Y2xlcmsudDMuY29kZXMk"
-          T3CODE_CLERK_JWT_TEMPLATE: "t3-relay"
-          T3CODE_RELAY_URL: "https://relay.t3.codes"
         run: |
           node scripts/update-release-package-versions.ts "${{ needs.meta.outputs.version }}"
           node scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64 \
