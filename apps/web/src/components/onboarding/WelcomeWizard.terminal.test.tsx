@@ -108,7 +108,11 @@ vi.mock("../../hooks/useLocalStorage", () => ({ useLocalStorage: () => [false, v
 vi.mock("../../hooks/useCopyToClipboard", () => ({
   useCopyToClipboard: () => ({ copyToClipboard: vi.fn(), isCopied: false }),
 }));
-vi.mock("../../cloud/publicConfig", () => ({ hasCloudPublicConfig: () => false }));
+vi.mock("../../cloud/publicConfig", () => ({
+  hasCloudPublicConfig: () => false,
+  offlineFromServerConfig: (config: { readonly offline?: boolean } | null | undefined) =>
+    config?.offline === true,
+}));
 vi.mock("../clerk/useT3ConnectAuthPrompt", () => ({ useT3ConnectAuthPrompt: vi.fn() }));
 vi.mock("@clerk/react", () => ({ useAuth: vi.fn() }));
 vi.mock("../../env", () => ({ isElectron: false }));

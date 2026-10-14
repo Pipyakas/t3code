@@ -148,6 +148,7 @@ import * as CloudCliTokenManager from "./cloud/CliTokenManager.ts";
 import * as CloudCliState from "./cloud/CliState.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as DesktopAppUpdate from "./desktopUpdate/DesktopAppUpdate.ts";
+import { offlineMode } from "./offlineMode.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
@@ -745,6 +746,10 @@ const layerMakeServer = Layer.unwrap(
     const config = yield* ServerConfig.ServerConfig;
     // Before anything opens the database: one server per T3 home.
     const ownership = yield* ServerOwnership.acquireServerOwnership(config.serverRuntimeStatePath);
+    // Offline mode (`T3CODE_OFFLINE=1`): this server never configures Tailscale
+    // Serve or runs the tailscale CLI, whatever `--tailscale-serve`, the env,
+    // or the desktop bootstrap ask for.
+    const tailscaleServeEnabled = config.tailscaleServeEnabled ? !(yield* offlineMode) : false;
     const activation = yield* Deferred.make<void>();
     const awaitActivation = Deferred.await(activation);
     const layerActivation = Layer.succeed(ServerActivation.ServerActivation, awaitActivation);
@@ -789,7 +794,7 @@ const layerMakeServer = Layer.unwrap(
           );
       }),
     );
-    const layerTailscaleServe = config.tailscaleServeEnabled
+    const layerTailscaleServe = tailscaleServeEnabled
       ? Layer.effectDiscard(
           Effect.acquireRelease(
             Effect.gen(function* () {
@@ -1067,7 +1072,7 @@ const layerMakeServer = Layer.unwrap(
           Deferred.await(runtimeStateParked),
           Deferred.await(cloudLinkParked),
           Deferred.await(routesReady),
-          ...(config.tailscaleServeEnabled ? [Deferred.await(tailscaleParked)] : []),
+          ...(tailscaleServeEnabled ? [Deferred.await(tailscaleParked)] : []),
         ],
         { concurrency: "unbounded" },
       ).pipe(Effect.asVoid),

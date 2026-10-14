@@ -34,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useOfflineMode } from "../../hooks/useOfflineMode";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
@@ -469,6 +470,10 @@ function ConnectAccountOption({
   const { environments } = useEnvironments();
   const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
   const { openAuthPrompt } = useT3ConnectAuthPrompt();
+  // Offline mode (`T3CODE_OFFLINE=1`): this machine cannot publish through T3
+  // Connect, so the wizard offers only the client-only sign-in-and-select
+  // instructions, never the `t3 connect` host command.
+  const offline = useOfflineMode();
   const [expanded, setExpanded] = useState(true);
   const [discoveryReady, setDiscoveryReady] = useState(false);
   const onDiscoveryReady = useCallback(() => setDiscoveryReady(true), []);
@@ -522,9 +527,11 @@ function ConnectAccountOption({
               ) : null}
             </div>
             <p className="text-sm text-muted-foreground">
-              Run this on each computer you want to connect.
+              {offline
+                ? "Sign in with the same T3 account on each computer you want to connect, then choose it above. This machine is running in offline mode and cannot publish through T3 Connect."
+                : "Run this on each computer you want to connect."}
             </p>
-            <CommandBlock command="npx t3 connect" className="mt-3" />
+            {offline ? null : <CommandBlock command="npx t3 connect" className="mt-3" />}
             <p className="mt-3 text-xs text-muted-foreground">
               Keep T3 Code running. Select the computers you want to set up above.
             </p>
@@ -550,6 +557,9 @@ function PairingForm({
   readonly onPaired: (environmentId: EnvironmentId) => void;
 }) {
   const connectPairingEnvironment = useAtomCommand(connectPairing, { reportFailure: false });
+  // Offline mode (`T3CODE_OFFLINE=1`): Tailscale publishing is disabled, so the
+  // help text does not suggest `--tailscale`.
+  const offline = useOfflineMode();
   const [pairingUrl, setPairingUrl] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const mountedRef = useRef(true);
@@ -640,8 +650,12 @@ function PairingForm({
             </p>
             <CommandBlock command="npx t3 pair" className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Start T3 Code first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
-              <code className="font-mono">--tailscale</code> to use your tailnet.
+              Start T3 Code first, or run <code className="font-mono">npx t3 serve</code>.
+              {offline
+                ? " This machine is running in offline mode, so Tailscale publishing is disabled."
+                : " Add "}
+              {offline ? null : <code className="font-mono">--tailscale</code>}
+              {offline ? null : " to use your tailnet."}
             </p>
           </CollapsiblePanel>
         </Collapsible>

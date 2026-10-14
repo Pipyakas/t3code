@@ -5,6 +5,7 @@ import { usePrimaryCloudLinkState } from "~/cloud/primaryCloudLinkState";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { isElectron } from "~/env";
 import { isLocalEnvironmentDisabled } from "~/localEnvironment";
+import { useOfflineMode } from "~/hooks/useOfflineMode";
 import { desktopWslStateAtom } from "~/state/desktopWslState";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
@@ -30,12 +31,16 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
   // Same fallback as the Connections row: older servers imply a tunnel from `linked`.
   const managedTunnelActive =
     cloudLinkState?.managedTunnelActive ?? cloudLinkState?.linked ?? false;
+  // Offline mode (`T3CODE_OFFLINE=1`): hosting and Tailscale rows hide from
+  // search while sign-in config stays present for everything else.
+  const offline = useOfflineMode();
 
   return useMemo(
     () =>
       filterAvailableSettingsSearchItems({
         localEnvironmentDisabled,
         hasCloudPublicConfig: hasCloudPublicConfig(),
+        offline,
         hasEnvironment: environments.some((environment) => environment.serverConfig !== null),
         hasProviderSettingsEnvironment: environments.some((environment) =>
           isProviderSettingsEnvironmentAvailable({
@@ -69,6 +74,7 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
       desktopWsl.error,
       environments,
       localEnvironmentDisabled,
+      offline,
       scopeSearch.machine,
     ],
   );
