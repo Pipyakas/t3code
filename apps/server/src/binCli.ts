@@ -11,7 +11,9 @@ import { acpMcpBridgeCommand, acpMcpCallCommand } from "./cli/acpMcpBridge.ts";
 import { authCommand } from "./cli/auth.ts";
 import { appCommand } from "./cli/app.ts";
 import { browserCommand } from "./cli/browser.ts";
+import { connectCommand } from "./cli/connect.ts";
 import { pairCommand } from "./cli/pair.ts";
+import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { sharedServerCommandFlags } from "./cli/config.ts";
 import { projectCommand } from "./cli/project.ts";
 import { runDefaultServerCommand, serveCommand, startCommand } from "./cli/server.ts";
@@ -28,31 +30,31 @@ import { triageCommand } from "./cli/triage.ts";
 
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
-const connectRemovedMessage =
-  "T3 Connect has been removed in this build. Use direct pairing (`t3 pair`) or another route instead.";
+const connectPublicConfigMissingMessage =
+  "T3 Connect commands are unavailable: this build is missing T3 Connect public configuration.";
 
-class ConnectRemovedError extends CliError.UserError {
+class ConnectPublicConfigMissingError extends CliError.UserError {
   override get message() {
-    return connectRemovedMessage;
+    return connectPublicConfigMissingMessage;
   }
 }
 
 const connectUnavailableCommand = Command.make("connect", {
   command: Argument.String("command").pipe(Argument.variadic),
 }).pipe(
-  Command.withDescription("T3 Connect has been removed in this build."),
+  Command.withDescription("T3 Connect is unavailable in builds without public configuration."),
   Command.unlisted,
   Command.withHandler(() =>
     Effect.fail(
       new CliError.ShowHelp({
         commandPath: ["t3", "connect"],
-        errors: [new ConnectRemovedError({ cause: connectRemovedMessage })],
+        errors: [new ConnectPublicConfigMissingError({ cause: connectPublicConfigMissingMessage })],
       }),
     ),
   ),
 );
 
-export const makeCli = () =>
+export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
     Command.withDescription("Run the T3 Code server."),
     Command.withHandler(runDefaultServerCommand),
@@ -83,7 +85,7 @@ export const makeCli = () =>
       themeCommand,
       traceCommand,
       triageCommand,
-      connectUnavailableCommand,
+      cloudEnabled ? connectCommand : connectUnavailableCommand,
     ]),
   );
 

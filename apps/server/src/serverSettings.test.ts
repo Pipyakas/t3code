@@ -449,7 +449,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect("deep merges nested settings updates without dropping siblings", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      // Codex is off by default in the offline build; enable it so the
+      // Codex is off by default in this fork; enable it so the
       // selection under test is not replaced by the text-generation fallback.
       yield* serverSettings.updateSettings({
         providerInstances: {
@@ -646,7 +646,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect("preserves model when switching providers via textGenerationModelSelection", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      // Codex is off by default in the offline build; enable it so the
+      // Codex is off by default in this fork; enable it so the
       // selection under test is not replaced by the text-generation fallback.
       yield* serverSettings.updateSettings({
         providerInstances: {
@@ -829,6 +829,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       });
 
       assert.equal(next.textGenerationModelSelection.instanceId, "claudeAgent");
+      assert.equal(next.textGenerationModelSelection.model, "claude-haiku-5-5");
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
@@ -927,7 +928,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect("drops stale text generation options when resetting model selection", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      // Codex is off by default in the offline build; enable it so the
+      // Codex is off by default in this fork; enable it so the
       // selection under test is not replaced by the text-generation fallback.
       yield* serverSettings.updateSettings({
         providerInstances: {
@@ -1035,7 +1036,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           enabled: false,
           config: {},
         },
-        // OpenCode starts on in the offline build, so an explicit legacy
+        // OpenCode starts on in this fork, so an explicit legacy
         // disable is kept as an instance instead of being dropped.
         [ProviderInstanceId.make("opencode")]: {
           driver: ProviderDriverKind.make("opencode"),
@@ -1478,8 +1479,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }).pipe(Effect.provide(layerServerSettings())),
   );
 
-  // This fork builds no driver with a secret config field (only Antigravity has one).
-  it.effect.skip(
+  it.effect(
     "uses the same secret lifecycle for provider config, environment, host tokens, and quota keys",
     () =>
       Effect.gen(function* () {
@@ -1903,7 +1903,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             ? Effect.fail(writeFailure)
             : fileSystem.rename(fromPath, toPath),
       });
-      const instanceId = ProviderInstanceId.make("opencode_write_failure");
+      const instanceId = ProviderInstanceId.make("antigravity_write_failure");
       const layerSettings = layerServerSettings().pipe(
         Layer.provideMerge(Layer.succeed(FileSystem.FileSystem, failingFileSystem)),
       );
@@ -1915,7 +1915,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           operation: "upsert",
           instanceId,
           instance: {
-            driver: ProviderDriverKind.make("opencode"),
+            driver: ProviderDriverKind.make("antigravity"),
             environment: [{ name: "OPENROUTER_API_KEY", value: "sk-kept", sensitive: true }],
             config: { apiKey: "config-kept" },
           },
@@ -1927,7 +1927,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             operation: "upsert",
             instanceId,
             instance: {
-              driver: ProviderDriverKind.make("opencode"),
+              driver: ProviderDriverKind.make("antigravity"),
               environment: [{ name: "OPENROUTER_API_KEY", value: "sk-new", sensitive: true }],
               config: { apiKey: "config-new" },
             },

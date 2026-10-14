@@ -5,8 +5,11 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-// This fork publishes its own releases, so runtimes download from it rather than upstream.
-const CLI_RELEASE_REPOSITORY = "Pipyakas/t3code";
+/**
+ * Where this fork's builds publish: desktop updates, the release history link, and the CLI
+ * archives that runtimes download.
+ */
+export const RELEASE_REPOSITORY = "Pipyakas/t3code";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -55,7 +58,7 @@ export function cliArchiveFileName(version: string, platformKey: CliArchivePlatf
   return `t3-${version}-${platformKey}.${platformKey.startsWith("win32") ? "zip" : "tar.gz"}`;
 }
 
-const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
+const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${RELEASE_REPOSITORY}/releases/download`;
 
 /** Directory that `releases/download/<tag>/<asset>` lives under. */
 export function cliReleaseDownloadBaseUrl(
@@ -99,7 +102,7 @@ export function cliReleaseChannelOf(version: string): CliReleaseChannel {
  * preview or stable release past any single page.
  */
 export function cliReleaseIndexPageUrl(page: number): string {
-  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
+  return `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
 }
 
 /**

@@ -15,7 +15,7 @@ import * as Schema from "effect/Schema";
 
 export const OpenCodeSettings = makeProviderSettingsSchema(
   {
-    // On by default in the offline build, alongside Claude.
+    // On by default in this fork, alongside Claude.
     enabled: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),

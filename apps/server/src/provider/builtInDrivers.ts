@@ -30,6 +30,7 @@ import { CodexDriver, type CodexDriverEnv } from "./Drivers/CodexDriver.ts";
 import { CursorDriver, type CursorDriverEnv } from "@t3tools/provider-cursor/server";
 import { GrokDriver, type GrokDriverEnv } from "@t3tools/provider-grok/server";
 import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
+import { MuseDriver, type MuseDriverEnv } from "@t3tools/provider-muse/server";
 import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import type {
   AnyProviderDriver,
@@ -41,7 +42,16 @@ import type {
  * driver. The registry layer declares `R = BuiltInDriversEnv`; the runtime
  * layer must provide every service in this union.
  */
-export type BuiltInDriversEnv = AcpRegistryDriverEnv | ClaudeDriverEnv | OpenCodeDriverEnv;
+export type BuiltInDriversEnv =
+  | AcpRegistryDriverEnv
+  | AntigravityDriverEnv
+  | ClaudeDriverEnv
+  | CodexDriverEnv
+  | CursorDriverEnv
+  | GrokDriverEnv
+  | OpenCodeDriverEnv
+  | PiDriverEnv
+  | MuseDriverEnv;
 
 /**
  * Ordered list of built-in drivers. Order matters only for tie-breaking in
@@ -49,8 +59,14 @@ export type BuiltInDriversEnv = AcpRegistryDriverEnv | ClaudeDriverEnv | OpenCod
  * iteration order has no functional effect on instance lookup.
  */
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
+  CodexDriver,
   ClaudeDriver,
+  CursorDriver,
+  GrokDriver,
   OpenCodeDriver,
+  AntigravityDriver,
+  PiDriver,
+  MuseDriver,
   AcpRegistryDriver,
 ];
 
@@ -64,21 +80,13 @@ export type BuiltInUsageReadersEnv =
   | ProviderUsageReaderEnv<typeof CursorDriver>
   | ProviderUsageReaderEnv<typeof PiDriver>;
 
-/** Drivers listed only for their usage readers; none of them can be instantiated here. */
-type UsageOnlyDriversEnv =
-  | AntigravityDriverEnv
-  | CodexDriverEnv
-  | CursorDriverEnv
-  | GrokDriverEnv
-  | PiDriverEnv;
-
 /**
  * The drivers that keep usage history, in the order the usage page reads
  * them: transcript readers first, then scan readers. Aggregation keeps the
  * first copy of a duplicate record, so the order is part of the result.
  */
 export const BUILT_IN_USAGE_DRIVERS: ReadonlyArray<
-  AnyProviderDriver<BuiltInDriversEnv | UsageOnlyDriversEnv, BuiltInUsageReadersEnv>
+  AnyProviderDriver<BuiltInDriversEnv, BuiltInUsageReadersEnv>
 > = [
   ClaudeDriver,
   CodexDriver,

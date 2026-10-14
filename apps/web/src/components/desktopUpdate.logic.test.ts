@@ -14,6 +14,7 @@ import {
   shouldShowArm64IntelBuildWarning,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
+import { RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 
 const baseState: DesktopUpdateState = {
   enabled: true,
@@ -55,6 +56,26 @@ describe("desktop update button state", () => {
     };
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
     expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
+  });
+
+  it("says when the same version did not apply before", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "downloaded",
+      availableVersion: "1.1.0",
+      downloadedVersion: "1.1.0",
+      notAppliedVersion: "1.1.0",
+    };
+    expect(getDesktopUpdateButtonTooltip(state)).toBe(
+      "Update 1.1.0 did not apply. Click to retry.",
+    );
+    expect(
+      getDesktopUpdateButtonTooltip({
+        ...state,
+        availableVersion: "1.2.0",
+        downloadedVersion: "1.2.0",
+      }),
+    ).toContain("1.2.0 downloaded");
   });
 
   it("keeps install action available after an install error", () => {
@@ -182,13 +203,13 @@ describe("getDesktopUpdateActionError", () => {
 describe("desktop update UI helpers", () => {
   it("builds the stable release URL for a downloaded version", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30")).toBe(
-      "https://github.com/Pipyakas/t3code/releases/tag/v0.0.30",
+      `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v0.0.30`,
     );
   });
 
   it("builds the nightly release URL without dropping its version suffix", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30-nightly.20260728.931")).toBe(
-      "https://github.com/Pipyakas/t3code/releases/tag/v0.0.30-nightly.20260728.931",
+      `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v0.0.30-nightly.20260728.931`,
     );
   });
 
@@ -198,7 +219,9 @@ describe("desktop update UI helpers", () => {
   });
 
   it("builds the release history URL", () => {
-    expect(getDesktopUpdateReleaseHistoryUrl()).toBe("https://github.com/Pipyakas/t3code/releases");
+    expect(getDesktopUpdateReleaseHistoryUrl()).toBe(
+      `https://github.com/${RELEASE_REPOSITORY}/releases`,
+    );
   });
 
   it("toasts only for actionable updater errors", () => {

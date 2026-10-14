@@ -11,6 +11,7 @@ vi.mock("../ui/toast", () => ({
 }));
 
 import { SidebarUpdateReleaseNotes } from "./SidebarUpdateReleaseNotes";
+import { RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 
 type AnchorElement = ReactElement<{
   readonly children?: ReactNode;
@@ -87,9 +88,9 @@ describe("SidebarUpdateReleaseNotes", () => {
     );
 
     expect(anchors.map(({ props }) => props.href)).toEqual([
-      "https://github.com/Pipyakas/t3code/releases/tag/v0.0.36-nightly.3",
-      "https://github.com/Pipyakas/t3code/releases/tag/v0.0.36-nightly.2",
-      "https://github.com/Pipyakas/t3code/releases/tag/v0.0.36-nightly.1",
+      `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v0.0.36-nightly.3`,
+      `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v0.0.36-nightly.2`,
+      `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v0.0.36-nightly.1`,
     ]);
     expect(anchors.map(({ props }) => textContent(props.children))).toEqual([
       "View release on GitHub",
@@ -107,7 +108,7 @@ describe("SidebarUpdateReleaseNotes", () => {
       }),
     );
 
-    expect(anchors.at(-1)?.props.href).toBe("https://github.com/Pipyakas/t3code/releases");
+    expect(anchors.at(-1)?.props.href).toBe(`https://github.com/${RELEASE_REPOSITORY}/releases`);
     expect(textContent(anchors.at(-1)?.props.children)).toBe("1 older release on GitHub");
   });
 
@@ -141,7 +142,7 @@ describe("SidebarUpdateReleaseNotes", () => {
     expect(preventDefault).toHaveBeenCalledOnce();
     await vi.waitFor(() => {
       expect(openExternal).toHaveBeenCalledWith(
-        "https://github.com/Pipyakas/t3code/releases/tag/v0.0.36-nightly.3",
+        `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v0.0.36-nightly.3`,
       );
       expect(testState.addToast).toHaveBeenCalledWith({
         type: "error",

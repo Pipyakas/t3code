@@ -17,7 +17,7 @@ vi.mock("expo-constants", () => ({
   },
 }));
 
-it.effect("never exports mobile spans even with ingest credentials", () => {
+it.effect("exports spans through the scoped mobile OTLP layer", () => {
   const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
   const layerTracing = Tracing.layerFromConfig(
     {
@@ -42,7 +42,12 @@ it.effect("never exports mobile spans even with ingest credentials", () => {
     Effect.scoped,
     Effect.andThen(
       Effect.sync(() => {
-        expect(fetchFn).not.toHaveBeenCalled();
+        expect(fetchFn).toHaveBeenCalledOnce();
+        const [url, init] = fetchFn.mock.calls[0]!;
+        expect(String(url)).toBe("https://api.axiom.test/v1/traces");
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer public-ingest-token");
+        expect(new Headers(init?.headers).get("x-axiom-dataset")).toBe("mobile-traces");
+        expect(new TextDecoder().decode(init?.body as Uint8Array)).toContain("mobile.test.span");
       }),
     ),
   );
@@ -82,7 +87,10 @@ it.effect("does not let OTLP serialization failures alter application effects", 
     Effect.scoped,
     Effect.andThen(
       Effect.sync(() => {
-        expect(fetchFn).not.toHaveBeenCalled();
+        expect(fetchFn).toHaveBeenCalledOnce();
+        expect(new TextDecoder().decode(fetchFn.mock.calls[0]?.[1]?.body as Uint8Array)).toContain(
+          "mobile.test.failed-span",
+        );
       }),
     ),
   );

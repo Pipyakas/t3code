@@ -79,6 +79,13 @@ describe("add project shared logic", () => {
         sshUrl: "git@github.com:imputnet/helium.git",
       }),
     ).toBe("https://github.com/imputnet/helium");
+    expect(
+      getDefaultCloneUrl({
+        provider: SourceControlProviderKind.make("forgejo"),
+        url: "https://forgejo.example.test:8443/owner/repo.git",
+        sshUrl: "ssh://git@forgejo.example.test:2222/owner/repo.git",
+      }),
+    ).toBe("https://forgejo.example.test:8443/owner/repo.git");
   });
 
   it("preserves existing clone transport behavior for other providers", () => {
@@ -221,6 +228,50 @@ describe("add project shared logic", () => {
       hint: "Run glab auth login",
     });
     expect(sortAddProjectProviderSources(readiness)[0]).toBe("github");
+  });
+
+  it("drops a host the environment has switched off from the clone picker and the publish targets", () => {
+    const provider = (kind: string, enabled: boolean | undefined) => ({
+      kind: SourceControlProviderKind.make(kind),
+      label: kind,
+      status: "available" as const,
+      installHint: "",
+      version: Option.none<string>(),
+      detail: Option.none<string>(),
+      auth: {
+        status: "authenticated" as const,
+        account: Option.some(`${kind}-owner`),
+        host: Option.none<string>(),
+        detail: Option.none<string>(),
+      },
+      ...(enabled === undefined ? {} : { enabled }),
+    });
+    const discovery = {
+      versionControlSystems: [],
+      sourceControlProviders: [
+        provider("github", true),
+        provider("forgejo", false),
+        // A server that predates the setting says nothing, which reads as on.
+        provider("gitlab", undefined),
+      ],
+    };
+
+    const readiness = buildAddProjectRemoteSourceReadiness(discovery);
+    expect(readiness(SourceControlProviderKind.make("forgejo"))).toEqual({
+      ready: false,
+      hint: "forgejo is turned off. Turn it on in Settings -> Source Control.",
+    });
+
+    const offered = sortAddProjectProviderSources(readiness, discovery).map(String);
+    expect(offered).not.toContain("forgejo");
+    expect(offered).toContain("github");
+    expect(offered).toContain("gitlab");
+
+    const publishTargets = getNewProjectPublishTargets(discovery).map(
+      (target) => target.definition.kind,
+    );
+    expect(publishTargets).not.toContain("forgejo");
+    expect(publishTargets).toContain("github");
   });
 
   it("finds existing projects by normalized path in the target environment", () => {

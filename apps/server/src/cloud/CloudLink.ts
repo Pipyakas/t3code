@@ -54,7 +54,6 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import { hasCloudPublicConfig } from "./publicConfig.ts";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
@@ -312,7 +311,8 @@ const isPermanentLinkError = Schema.is(
 );
 
 /** Whether a failed link step may succeed on retry: not when the relay or this server refused it. */
-export const shouldRetryCloudLink = (_error: unknown): boolean => false;
+export const shouldRetryCloudLink = (error: unknown): boolean =>
+  shouldRetryRelayRequest(error) && !isPermanentLinkError(error);
 
 /** A failed rollback leaves a setting changed; it is logged, not hidden. */
 const rollbackFailed = (cause: unknown) =>
@@ -566,7 +566,6 @@ export class CloudLink extends Context.Service<
 >()("t3/cloud/CloudLink") {}
 
 const make = Effect.gen(function* () {
-  if (!hasCloudPublicConfig) return disabledCloudLink;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const endpointRuntime = yield* ManagedEndpointRuntime.CloudManagedEndpointRuntime;
@@ -648,7 +647,7 @@ const make = Effect.gen(function* () {
       iss: `t3-env:${descriptor.environmentId}`,
       aud: normalizeRelayIssuer(request.relayIssuer),
       sub: descriptor.environmentId,
-      jti: yield* crypto.randomUUIDv4,
+      jti: yield* crypto.randomUUIDv4(),
       iat: nowSeconds,
       exp: Math.floor(expiresAt.epochMilliseconds / 1_000),
       challenge: request.challenge,
@@ -985,7 +984,7 @@ const make = Effect.gen(function* () {
         Option.isSome(configuredIssuer) ? bytesToString(configuredIssuer.value) : input.relayUrl,
       ),
       sub: input.environmentId,
-      jti: yield* crypto.randomUUIDv4,
+      jti: yield* crypto.randomUUIDv4(),
       iat: issuedAt,
       exp: issuedAt + 60,
       environmentId: input.environmentId,
@@ -1518,7 +1517,7 @@ const make = Effect.gen(function* () {
         iss: `t3-env:${environmentId}`,
         aud: normalizeRelayIssuer(relayIssuer),
         sub: environmentId,
-        jti: yield* crypto.randomUUIDv4,
+        jti: yield* crypto.randomUUIDv4(),
         iat: nowSeconds,
         exp: Math.floor(responseExpiresAt.epochMilliseconds / 1_000),
         environmentId,
@@ -1628,7 +1627,7 @@ const make = Effect.gen(function* () {
         iss: `t3-env:${environmentId}`,
         aud: normalizeRelayIssuer(relayIssuer),
         sub: environmentId,
-        jti: yield* crypto.randomUUIDv4,
+        jti: yield* crypto.randomUUIDv4(),
         iat: nowSeconds,
         exp: Math.floor(issued.expiresAt.epochMilliseconds / 1_000),
         environmentId,
@@ -1675,34 +1674,4 @@ const make = Effect.gen(function* () {
   });
 });
 
-const removed = Effect.fail(
-  new CloudLinkInternalError({
-    operation: "read-preferences",
-    cause: new Error("T3 Connect is removed in this build."),
-  }),
-);
-const disabledCloudLink = CloudLink.of({
-  linkProof: () => removed,
-  applyRelayConfig: () => removed,
-  linkState: () =>
-    Effect.succeed({
-      linked: false,
-      cloudUserId: null,
-      relayUrl: null,
-      relayIssuer: null,
-      managedTunnelActive: false,
-      publishAgentActivity: false,
-      holdWebhooksWhileOffline: false,
-    }),
-  unlink: () => Effect.succeed({ ok: true, endpointRuntimeStatus: null }),
-  updatePreferences: () => removed,
-  answerHealthRequest: () => removed,
-  mintCredential: () => removed,
-  reconcileDesiredLink: () => removed,
-  reconcileDesiredLinkIfStillDesired: () => Effect.succeed(null),
-  registerManagedTunnelRecovery: () => Effect.succeed({ status: "not_linked" }),
-  recoverManagedTunnel: () => Effect.succeed(false),
-  startManagedTunnelIfOriginConfirmed: () => Effect.succeed(false),
-  releaseManagedTunnelOnShutdown: () => Effect.succeed(false),
-});
-export const layer = Layer.succeed(CloudLink, disabledCloudLink);
+export const layer = Layer.effect(CloudLink, make);

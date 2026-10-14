@@ -8,10 +8,10 @@ describe("sourceControlClients", () => {
     expect(sourceControlClients.get("forkhost").kind).toBe("unknown");
   });
 
-  it("gives a change request URL only to the hosts the offline build ships", () => {
+  it("gives a change request URL to the first host whose shape it has", () => {
+    // GitCafe and Forgejo share `/pulls/`; GitCafe only claims its own hostnames.
     const kindOf = (url: string) => sourceControlClients.findByChangeRequestUrl(url)?.kind;
-    expect(kindOf("https://github.com/acme/web/pull/7")).toBe("github");
-    expect(kindOf("https://gitlab.com/acme/web/-/merge_requests/7")).toBe("gitlab");
-    expect(kindOf("https://codeberg.org/acme/web/pulls/7")).toBeUndefined();
+    expect(kindOf("https://git.cafe/acme/web/pulls/7")).toBe("gitcafe");
+    expect(kindOf("https://codeberg.org/acme/web/pulls/7")).toBe("forgejo");
   });
 });

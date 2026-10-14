@@ -17,6 +17,7 @@ import {
 
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -1533,7 +1534,8 @@ export function resolveKeyringNativeArtifacts(
 }
 
 /**
- * pnpm keeps the platform package under `@napi-rs/keyring`, electron-builder only retains collected
+ * Same nesting problem as the Clerk passkey binaries: pnpm keeps the platform
+ * package under `@napi-rs/keyring`, electron-builder only retains collected
  * top-level dependencies, and the generated loader checks for a sibling
  * `keyring.<platform>.node` before falling back to the package. Staging the
  * binary beside `index.js` lets that first branch win.
@@ -2664,9 +2666,6 @@ export function resolveDesktopRuntimeDependencies(
   );
 }
 
-// This fork publishes its own nightlies, so installs follow it rather than upstream.
-const DEFAULT_UPDATE_REPOSITORY = "Pipyakas/t3code";
-
 export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig")(function* (
   updateChannel: "latest" | "nightly",
 ) {
@@ -2677,7 +2676,7 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   const rawRepo = (
     Option.getOrUndefined(env.updateRepository)?.trim() ||
     Option.getOrUndefined(env.githubRepository)?.trim() ||
-    DEFAULT_UPDATE_REPOSITORY
+    RELEASE_REPOSITORY
   ).trim();
   if (!rawRepo) return undefined;
 

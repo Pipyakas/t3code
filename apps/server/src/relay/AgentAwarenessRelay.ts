@@ -25,7 +25,6 @@ import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import { hasCloudPublicConfig } from "../cloud/publicConfig.ts";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -98,6 +97,7 @@ export function shouldPublishAgentAwarenessEvent(
     case "thread.unarchived":
     case "thread.deleted":
     case "thread.metadata-updated":
+    case "thread.pull-request-link-updated":
     case "thread.pull-request-synced":
     case "thread.model-selection-updated":
     case "thread.provider-switched":
@@ -367,8 +367,6 @@ export function resolveAgentAwarenessRelayActiveThreadIds(input: {
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
-  // Relay publishing (including relay-based push) is absent from this build.
-  if (!hasCloudPublicConfig) return disabledRelay;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
   const threads = yield* ThreadManagement.ThreadManagementService;
@@ -492,7 +490,7 @@ export const make = Effect.gen(function* () {
           environmentId,
           threadId,
           state: input.state,
-          jti: yield* crypto.randomUUIDv4,
+          jti: yield* crypto.randomUUIDv4(),
         });
 
         yield* Effect.logInfo("publishing agent activity for thread", {
@@ -504,16 +502,18 @@ export const make = Effect.gen(function* () {
           reason: input.reason,
         });
 
-        const response = yield* relayClient.server.publishAgentActivity({
-          params: {
-            environmentId,
-            threadId,
-          },
-          payload: {
-            state: input.state,
-            proof,
-          },
-        });
+        const response = yield* relayClient.server
+          .publishAgentActivity({
+            params: {
+              environmentId,
+              threadId,
+            },
+            payload: {
+              state: input.state,
+              proof,
+            },
+          })
+          .pipe(Effect.timeout("10 seconds"));
 
         yield* Effect.logInfo("agent activity publish completed", {
           environmentId,
@@ -849,10 +849,4 @@ export const make = Effect.gen(function* () {
   });
 });
 
-const disabledRelay = AgentAwarenessRelay.of({
-  publishThread: () => Effect.void,
-  drain: Effect.void,
-  requestCatchUp: () => Effect.void,
-  start: () => Effect.void,
-});
 export const layer = Layer.effect(AgentAwarenessRelay, make);

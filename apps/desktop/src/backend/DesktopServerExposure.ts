@@ -9,18 +9,24 @@ import {
   type DesktopServerExposureMode,
   type DesktopServerExposureState,
 } from "@t3tools/contracts";
-import { isSharedAddressSpaceHost } from "@t3tools/shared/hostClassification";
+import { isTailscaleIpv4Address, readTailscaleStatus } from "@t3tools/tailscale";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import * as HttpClient from "effect/http/HttpClient";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopNetworkInterfaces from "./DesktopNetworkInterfaces.ts";
+import { resolveTailscaleAdvertisedEndpoints } from "./tailscaleEndpointProvider.ts";
+
+const TAILSCALE_STATUS_CACHE_TTL = Duration.seconds(60);
 
 const DESKTOP_LOOPBACK_HOST = "127.0.0.1";
 const DESKTOP_LAN_BIND_HOST = "0.0.0.0";
@@ -62,7 +68,7 @@ const normalizeOptionalHost = (value: string | undefined): string | undefined =>
 const isUsableLanIpv4Address = (address: string): boolean =>
   !address.startsWith("127.") &&
   !address.startsWith("169.254.") &&
-  !isSharedAddressSpaceHost(address);
+  !isTailscaleIpv4Address(address);
 
 const isHttpsEndpointUrl = (value: string): boolean => {
   try {
@@ -223,6 +229,19 @@ export class DesktopServerExposureModePersistenceError extends Schema.TaggedErro
   }
 }
 
+export class DesktopTailscaleServePersistenceError extends Schema.TaggedError<DesktopTailscaleServePersistenceError>()(
+  "DesktopTailscaleServePersistenceError",
+  {
+    enabled: Schema.Boolean,
+    port: Schema.NullOr(Schema.Number),
+    cause: Schema.instanceOf(DesktopAppSettings.DesktopSettingsWriteError),
+  },
+) {
+  override get message(): string {
+    return `Failed to persist desktop Tailscale Serve settings (enabled: ${this.enabled}, port: ${this.port ?? "unchanged"}).`;
+  }
+}
+
 export const DesktopServerExposureSetModeError = Schema.Union([
   DesktopServerExposureNoNetworkAddressError,
   DesktopServerExposureModePersistenceError,
@@ -232,6 +251,7 @@ export type DesktopServerExposureSetModeError = typeof DesktopServerExposureSetM
 export const DesktopServerExposureError = Schema.Union([
   DesktopServerExposureNoNetworkAddressError,
   DesktopServerExposureModePersistenceError,
+  DesktopTailscaleServePersistenceError,
 ]);
 export type DesktopServerExposureError = typeof DesktopServerExposureError.Type;
 
@@ -239,6 +259,8 @@ export interface DesktopServerExposureBackendConfig {
   readonly port: number;
   readonly bindHost: string;
   readonly httpBaseUrl: URL;
+  readonly tailscaleServeEnabled: boolean;
+  readonly tailscaleServePort: number;
 }
 
 export interface DesktopServerExposureChange {
@@ -257,6 +279,10 @@ export class DesktopServerExposure extends Context.Service<
     readonly setMode: (
       mode: DesktopServerExposureMode,
     ) => Effect.Effect<DesktopServerExposureChange, DesktopServerExposureSetModeError>;
+    readonly setTailscaleServeEnabled: (input: {
+      readonly enabled: boolean;
+      readonly port?: number;
+    }) => Effect.Effect<DesktopServerExposureChange, DesktopTailscaleServePersistenceError>;
     readonly getAdvertisedEndpoints: Effect.Effect<readonly AdvertisedEndpoint[]>;
   }
 >()("@t3tools/desktop/backend/DesktopServerExposure") {}
@@ -271,6 +297,8 @@ interface RuntimeState {
   readonly httpBaseUrl: URL;
   readonly endpointUrl: Option.Option<string>;
   readonly advertisedHost: Option.Option<string>;
+  readonly tailscaleServeEnabled: boolean;
+  readonly tailscaleServePort: number;
 }
 
 interface ResolvedRuntimeState {
@@ -294,12 +322,16 @@ const toContractState = (state: RuntimeState): DesktopServerExposureState => ({
   mode: state.mode,
   endpointUrl: Option.getOrNull(state.endpointUrl),
   advertisedHost: Option.getOrNull(state.advertisedHost),
+  tailscaleServeEnabled: state.tailscaleServeEnabled,
+  tailscaleServePort: state.tailscaleServePort,
 });
 
 const toBackendConfig = (state: RuntimeState): DesktopServerExposureBackendConfig => ({
   port: state.port,
   bindHost: state.bindHost,
   httpBaseUrl: state.httpBaseUrl,
+  tailscaleServeEnabled: state.tailscaleServeEnabled,
+  tailscaleServePort: state.tailscaleServePort,
 });
 
 const toResolvedExposure = (state: RuntimeState): ResolvedDesktopServerExposure => ({
@@ -327,6 +359,8 @@ function runtimeStateFromResolvedExposure(input: {
     httpBaseUrl: new URL(input.exposure.localHttpUrl),
     endpointUrl: Option.fromNullishOr(input.exposure.endpointUrl),
     advertisedHost: Option.fromNullishOr(input.exposure.advertisedHost),
+    tailscaleServeEnabled: input.settings.tailscaleServeEnabled,
+    tailscaleServePort: input.settings.tailscaleServePort,
   };
 }
 
@@ -345,7 +379,14 @@ function resolveRuntimeState(input: {
     ...(advertisedHostOverride ? { advertisedHostOverride } : {}),
   });
   const unavailable =
-    input.requestedMode === "network-accessible" && requestedExposure.endpointUrl === null;
+    input.requestedMode === "network-accessible" &&
+    requestedExposure.endpointUrl === null &&
+    !Object.values(input.networkInterfaces).some((addresses) =>
+      addresses?.some(
+        (address) =>
+          !address.internal && address.family === "IPv4" && isTailscaleIpv4Address(address.address),
+      ),
+    );
   const exposure = unavailable
     ? resolveDesktopServerExposure({
         mode: "local-only",
@@ -375,12 +416,26 @@ const requiresBackendRelaunch = (previous: RuntimeState, next: RuntimeState): bo
 export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
   const networkInterfaces = yield* DesktopNetworkInterfaces.DesktopNetworkInterfaces;
+  const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const httpClient = yield* HttpClient.HttpClient;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const stateRef = yield* Ref.make(initialRuntimeState());
   // Each change reads the runtime state, persists settings, then writes the
   // state back. Run them one at a time so a change never writes over another
   // with values it read before that change persisted.
   const changePermit = yield* Semaphore.make(1);
+
+  // Cache the `tailscale status` spawn for the TTL. On macOS, the Mac App
+  // Store Tailscale CLI lives inside Tailscale's sandbox container, so each
+  // spawn re-triggers the "Other apps" TCC prompt.
+  const cachedReadMagicDnsName = yield* Effect.cachedWithTTL(
+    readTailscaleStatus.pipe(
+      Effect.map((status) => status.magicDnsName),
+      Effect.orElseSucceed(() => null),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
+    ),
+    TAILSCALE_STATUS_CACHE_TTL,
+  );
 
   const readNetworkInterfaces = networkInterfaces.read;
 
@@ -444,15 +499,69 @@ export const make = Effect.gen(function* () {
     };
   }, changePermit.withPermit);
 
+  const setTailscaleServeEnabled = Effect.fn("desktop.serverExposure.setTailscaleServeEnabled")(
+    function* (input: { readonly enabled: boolean; readonly port?: number }) {
+      yield* Effect.annotateCurrentSpan({
+        enabled: input.enabled,
+        ...(input.port === undefined ? {} : { port: input.port }),
+      });
+      const result = yield* desktopSettings
+        .setTailscaleServe({
+          enabled: input.enabled,
+          port: Option.fromNullishOr(input.port),
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new DesktopTailscaleServePersistenceError({
+                enabled: input.enabled,
+                port: input.port ?? null,
+                cause,
+              }),
+          ),
+        );
+
+      const nextState = yield* Ref.updateAndGet(stateRef, (current) => ({
+        ...current,
+        tailscaleServeEnabled: result.settings.tailscaleServeEnabled,
+        tailscaleServePort: result.settings.tailscaleServePort,
+      }));
+
+      return {
+        state: toContractState(nextState),
+        requiresRelaunch: result.changed,
+      };
+    },
+    changePermit.withPermit,
+  );
+
   const getAdvertisedEndpoints = Effect.gen(function* () {
     const state = yield* Ref.get(stateRef);
+    const currentNetworkInterfaces = yield* readNetworkInterfaces;
     const coreEndpoints = resolveDesktopCoreAdvertisedEndpoints({
       port: state.port,
       exposure: toResolvedExposure(state),
       customHttpsEndpointUrls: config.desktopHttpsEndpointUrls,
     });
 
-    return coreEndpoints;
+    // Don't spawn the Tailscale CLI when the user hasn't opted into any
+    // network exposure. The spawn itself triggers a macOS "Other apps"
+    // TCC prompt on Mac App Store Tailscale builds.
+    if (state.mode !== "network-accessible" && !state.tailscaleServeEnabled) {
+      return coreEndpoints;
+    }
+
+    const tailscaleEndpoints = yield* resolveTailscaleAdvertisedEndpoints({
+      port: state.port,
+      serveEnabled: state.tailscaleServeEnabled,
+      servePort: state.tailscaleServePort,
+      networkInterfaces: currentNetworkInterfaces,
+      readMagicDnsName: cachedReadMagicDnsName,
+    }).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    );
+    return [...coreEndpoints, ...tailscaleEndpoints];
   }).pipe(Effect.withSpan("desktop.serverExposure.getAdvertisedEndpoints"));
 
   return DesktopServerExposure.of({
@@ -460,6 +569,7 @@ export const make = Effect.gen(function* () {
     backendConfig,
     configureFromSettings,
     setMode,
+    setTailscaleServeEnabled,
     getAdvertisedEndpoints,
   });
 });

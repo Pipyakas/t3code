@@ -1,6 +1,11 @@
 # Source control
 
-T3 Code integrates with GitHub and GitLab to clone and publish repositories, create pull requests, and review changes.
+T3 Code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, Azure DevOps, and GitCafe to clone
+and publish repositories, create pull requests, and review changes.
+
+GitHub and GitLab are on out of the box. Every other host starts off: switch one on with its
+toggle in **Settings → Source Control**, and off again the same way. A host that is off stays in
+that list, with its credentials tucked away, so you can turn it back on.
 
 ## Review turn changes
 
@@ -33,6 +38,26 @@ over that choice; a host turned off stays off either way.
 For GitHub Enterprise, sign in with `gh auth login --hostname YOUR_HOST`. T3 Code treats a
 custom server name as GitHub once it has a credential for that host.
 
+### Forgejo and Gitea
+
+Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or
+[Gitea CLI (`tea`)](https://gitea.com/gitea/tea) 0.16 or later on your T3 Code server.
+Sign in with `fj --host https://your-server auth add-token` or `tea login add`.
+Repeat for each server you use, including Codeberg.
+
+T3 Code prefers a matching `fj` login and falls back to `tea` when `fj` is unavailable
+or has no login for that server. Once an account is selected, failed actions stay on that
+account. Settings shows the detected CLI. Forgejo and Gitea share one integration entry.
+Servers hosted under a URL subpath, such as `https://example.com/forgejo`, use `tea` because
+fj 0.6 does not preserve the subpath when checking its account.
+
+When cloning or publishing, use a full repository URL to select a specific server.
+You can use `owner/repo` when only one fj server is configured, or with your default `tea`
+login when fj is unavailable or unconfigured. With multiple fj servers, use the full URL.
+If you have multiple `tea` accounts on one server, select one with
+`tea login default <login-name>`. Git push and clone also need Git credentials or an SSH key
+for that server.
+
 ### GitLab
 
 Install [GitLab CLI](https://gitlab.com/gitlab-org/cli), then sign in:
@@ -40,6 +65,58 @@ Install [GitLab CLI](https://gitlab.com/gitlab-org/cli), then sign in:
 ```bash
 glab auth login
 ```
+
+### Bitbucket
+
+Open **Settings → Source Control**, expand **Bitbucket**, and enter one of:
+
+- **Access token**: a token created for one repository, project, or workspace. It can only reach
+  what it was created for.
+- **Atlassian account email** and **API token**: an Atlassian API token for your account. It can
+  reach every repository you can. Give it read/write access to repositories and pull requests, plus
+  user read access (`read:user:bitbucket`).
+
+A field saves when you leave it, and applies right away. The access token wins when both are saved.
+Credentials are saved on the environment's server, so select a remote environment to configure
+it. Saved tokens can't be viewed again; enter a new one to replace it, or choose **Remove** to clear
+everything saved for Bitbucket.
+
+If no credentials are saved, T3 Code falls back to these variables in the server's environment.
+Restart the server after changing them:
+
+```bash
+export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
+# or
+export T3CODE_BITBUCKET_EMAIL="you@example.com"
+export T3CODE_BITBUCKET_API_TOKEN="your-token"
+```
+
+### Azure DevOps
+
+Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), add the DevOps extension, and sign in:
+
+```bash
+az extension add --name azure-devops
+az login
+```
+
+### GitCafe
+
+Install the GitCafe CLI and sign in:
+
+```bash
+bun install -g @gitcafe/cli
+cafe auth login --host https://git.cafe/api
+```
+
+Alternatively, open **Settings → Source Control**, expand **GitCafe**, and enter a token. It is
+kept in the server's secret store, applies right away, and is used before `CAFE_TOKEN` and the
+`cafe` login. Or set `CAFE_TOKEN` in the server's environment and restart it. Both tokens are only
+sent to `git.cafe`; `CAFE_TOKEN` follows `CAFE_HOST` if you set it. Repositories on
+`staging.git.cafe` need their own login with `--host https://staging.git.cafe/api`.
+
+Line comments, reviewer requests, and labels are not available for GitCafe pull requests yet.
+Merging a stack lands it through GitCafe, and updating a branch restacks the layers above it.
 
 ## Start, clone, or publish a project
 
@@ -99,7 +176,7 @@ On web and desktop, hold **Shift** in the GitHub pull request list for quick act
 To close several, press **Close**, drag across the rows in the same group, and release.
 Press **Escape** before releasing to cancel. Failed closes stay in the list so you can retry them.
 
-GitHub and GitLab support auto-merge while checks are outstanding. GitHub also
+GitHub, GitLab, and Azure DevOps support auto-merge while checks are outstanding. GitHub also
 supports approving waiting fork workflows and opening a revert pull request for a merged change.
 
 GitHub sharing is off by default. In Settings → Connections → GitHub sharing (Environments on mobile), choose
@@ -117,6 +194,9 @@ Credentials stay on their machines. Previously verified credentials remain usabl
 for ten minutes during a GitHub outage; new credentials must be verified first. An action with
 an uncertain result is never automatically retried elsewhere. Listings, diffs, and checkout or
 PR creation from Git actions continue to use the project's environment.
+
+For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
+declined pull request.
 
 ### Review guides
 
@@ -159,7 +239,7 @@ running count. A tick belongs to the pull request rather than to a commit, so sc
 single commit keeps them. A file pushed to after you cleared it comes back marked **Changed**.
 
 On GitHub these are GitHub's own viewed marks, so a review carries between T3 Code and github.com
-in either direction. GitLab exposes no record T3 Code can read, so the
+in either direction. Forgejo, GitLab, Bitbucket, and Azure DevOps expose no record T3 Code can read, so the
 server you are connected to keeps them instead: they follow you across the apps connected to that
 server, but the host's own site will not show them, and the count reads **viewed in T3 Code**.
 
@@ -168,7 +248,9 @@ and their marks follow the same rules as on web and desktop.
 
 ## Troubleshooting
 
-- **Not authenticated:** run the provider's login command on the server, then rescan.
+- **Not authenticated:** run the provider's login command on the server, then rescan. For Bitbucket,
+  check the credentials saved in Settings → Source Control, or confirm the running server received
+  the environment variables.
 - **GitHub sign-in cannot be verified:** update GitHub CLI to at least 2.81.0, or save a token in Settings → Source Control.
 - **Push fails despite a connected account:** check the Git remote's credentials. SSH and HTTPS
   remotes can require separate setup from the hosting provider's API access.
@@ -213,7 +295,8 @@ A watched thread counts as working between wakes, so it stays in the **Working**
 not auto-settle. Agents stop watching when they hand the work back to you, and the thread then
 returns to your inbox.
 
-Cross-repository links use a project on the same host.
+Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked
+out from the matching organization and repository.
 
 ## GitHub stacks
 

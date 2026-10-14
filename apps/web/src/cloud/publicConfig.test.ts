@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+
 import {
   CloudPublicConfigMissingError,
   hasCloudPublicConfig,
@@ -10,7 +11,7 @@ afterEach(() => {
 });
 
 describe("hasCloudPublicConfig", () => {
-  it("requires all public client values", () => {
+  it("requires both public cloud values", () => {
     vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", "");
     vi.stubEnv("VITE_CLERK_JWT_TEMPLATE", "");
     vi.stubEnv("VITE_T3CODE_RELAY_URL", "");
