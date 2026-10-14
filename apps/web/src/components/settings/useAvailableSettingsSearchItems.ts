@@ -30,7 +30,8 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
   const cloudLinkState = usePrimaryCloudLinkState().data;
   // Same fallback as the Connections row: older servers imply a tunnel from `linked`.
   const managedTunnelActive =
-    cloudLinkState?.managedTunnelActive ?? cloudLinkState?.linked ?? false;
+    cloudLinkState?.linkRevoked !== true &&
+    (cloudLinkState?.managedTunnelActive ?? cloudLinkState?.linked ?? false);
   // Offline mode (`T3CODE_OFFLINE=1`): hosting and Tailscale rows hide from
   // search while sign-in config stays present for everything else.
   const offline = useOfflineMode();
