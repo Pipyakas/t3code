@@ -94,7 +94,7 @@ function resolveDevProxyTarget(
   wsUrl: string | undefined,
 ): string | undefined {
   // Browser dev is single-origin: the backend port is proxied through this
-  // server so the app works from any origin (localhost, LAN, phone).
+  // server so the app works from any origin (localhost, tailnet, LAN, phone).
   // T3CODE_PORT is set by scripts/dev-runner.ts for every non-desktop mode.
   const port = Number(backendPort?.trim());
   if (Number.isInteger(port) && port > 0) {
@@ -126,7 +126,7 @@ function resolveDevProxyTarget(
 const devProxyTarget = resolveDevProxyTarget(process.env.T3CODE_PORT, configuredWsUrl);
 
 // Vite's dev server sends JS uncompressed. On localhost that is free; over a
-// shared origin (LAN) it is the whole cold-start: bundled dev serves
+// shared origin (tailnet, LAN) it is the whole cold-start: bundled dev serves
 // one ~25 MB chunk, and a typical uplink moves that in about a minute while
 // both machines sit idle. Compressing turns it into a few seconds of CPU.
 // Brotli quality 5 keeps encode time in the hundreds of ms; the default
@@ -147,12 +147,15 @@ function devCompressionPlugin(): Plugin {
   };
 }
 
-// Hosts other than localhost go through the configured allowlist.
+// Vite rejects requests whose Host header isn't localhost, which blocks sharing
+// a dev server over Tailscale/LAN. Tailnet names are safe to allow wholesale:
+// the DNS is controlled by tailscale, so they can't be rebound by an attacker.
+// Anything else (ngrok, a LAN IP alias) goes through the env var.
 const configuredAllowedHosts = (process.env.T3CODE_DEV_ALLOWED_HOSTS ?? "")
   .split(",")
   .map((entry) => entry.trim())
   .filter((entry) => entry.length > 0);
-const allowedHosts = configuredAllowedHosts;
+const allowedHosts = [".ts.net", ...configuredAllowedHosts];
 
 export default defineConfig(() => {
   return {
@@ -233,7 +236,8 @@ export default defineConfig(() => {
       allowedHosts,
       // Transform the whole module graph at server start instead of on the
       // first request. Without this, a cold worktree discovers and transforms
-      // modules one import-level at a time while the browser waits.
+      // modules one import-level at a time while the browser waits — which
+      // over a tailnet origin turns into minutes of waterfall.
       warmup: {
         clientFiles: ["./src/main.tsx"],
       },
@@ -260,7 +264,8 @@ export default defineConfig(() => {
       // Electron's BrowserWindow needs the HMR socket pinned to an explicit
       // host to connect reliably; dev:desktop is the only mode that sets HOST.
       // Everywhere else, leaving this unset lets the client derive it from the
-      // page origin, which makes HMR work over LAN instead of the wrong machine's localhost.
+      // page origin, which is what makes HMR work over Tailscale/LAN instead of
+      // failing an attempt against the wrong machine's localhost first.
       // (Vite 8 logs connection state via console.debug — enable "Verbose".)
       ...(explicitHost
         ? {

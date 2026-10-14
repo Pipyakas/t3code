@@ -14,6 +14,7 @@ import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import {
+  readProject,
   useAllEnvironmentShellsBootstrapped,
   useProjects,
   useThreadShells,
@@ -64,13 +65,25 @@ function IndexDraftLanding() {
     if (mostRecentProject === null || startingRef.current || !isStillOnIndex()) {
       return;
     }
+    const projectRef = scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id);
+    // A project removed since this render is gone from the store; the next
+    // render picks another one.
+    if (readProject(projectRef) === null) {
+      return;
+    }
     startingRef.current = true;
-    void handleNewThread(scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id), {
-      replace: true,
-    }).catch(() => {
-      startingRef.current = false;
-      setStartState((state) => ({ ...state, failed: true }));
-    });
+    void handleNewThread(projectRef, { replace: true })
+      .then((opened) => {
+        // The project was removed while its draft started; land on the next one.
+        if (opened === null) {
+          startingRef.current = false;
+          setStartState((state) => ({ ...state, retryRequest: state.retryRequest + 1 }));
+        }
+      })
+      .catch(() => {
+        startingRef.current = false;
+        setStartState((state) => ({ ...state, failed: true }));
+      });
   }, [handleNewThread, mostRecentProject, startState.retryRequest]);
 
   if (!bootstrapped) {
@@ -125,7 +138,7 @@ function HostedStaticOnboardingState() {
   const description = localEnvironmentOff
     ? "The local environment is turned off. Connect a remote environment, or turn the local environment back on in Connections."
     : cloudEnabled
-      ? "Open Connections here to sign in with the same account and connect to that machine. You can also add it using a pairing link."
+      ? "Enable T3 Connect on that machine, then open Connections here to sign in with the same account. You can also add the machine using a pairing link."
       : "Open Connections and add that machine using its pairing link. This app must be able to reach it.";
 
   return (

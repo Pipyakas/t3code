@@ -9,15 +9,14 @@ import {
 
 describe("ProviderSettingsForm helpers", () => {
   it("derives visible provider config fields from the client definition schema", () => {
-    const opencode = providerClients.get(ProviderDriverKind.make("opencode"));
+    const codex = providerClients.get(ProviderDriverKind.make("codex"));
 
-    expect(opencode).toBeDefined();
-    // Order comes from the schema's `providerSettingsFormSchema.order`; `enabled`
-    // and `customModels` are annotated hidden, so neither appears.
-    expect(deriveProviderSettingsFields(opencode!).map((field) => field.key)).toEqual([
+    expect(codex).toBeDefined();
+    expect(deriveProviderSettingsFields(codex!).map((field) => field.key)).toEqual([
       "binaryPath",
-      "serverUrl",
-      "serverPassword",
+      "homePath",
+      "shadowHomePath",
+      "launchArgs",
     ]);
   });
 
@@ -34,6 +33,22 @@ describe("ProviderSettingsForm helpers", () => {
       description: "Stored in plain text on disk.",
       control: "password",
     });
+  });
+
+  it("uses a dedicated environment field instead of legacy Cursor CLI settings", () => {
+    const cursor = providerClients.get(ProviderDriverKind.make("cursor"));
+
+    expect(cursor).toBeDefined();
+    expect(deriveProviderSettingsFields(cursor!)).toEqual([]);
+    expect(cursor?.environmentFields).toEqual([
+      {
+        name: "CURSOR_API_KEY",
+        label: "Cursor API key",
+        description: "Optional. Overrides browser sign-in for this provider.",
+        placeholder: "Paste API key",
+        sensitive: true,
+      },
+    ]);
   });
 
   it("exposes ACP Registry as an instance-only configurable driver", () => {
@@ -56,25 +71,27 @@ describe("ProviderSettingsForm helpers", () => {
     ).toEqual(["source", "commandPath"]);
   });
 
-  it("derives a select control with its choices for the ACP source", () => {
-    const acpRegistry = providerClients.get(ProviderDriverKind.make("acpRegistry"));
-    expect(acpRegistry).toBeDefined();
+  it("derives a select control with its choices for the Antigravity sign-in method", () => {
+    const antigravity = providerClients.get(ProviderDriverKind.make("antigravity"));
+    expect(antigravity).toBeDefined();
 
-    const fields = deriveProviderSettingsFields(acpRegistry!);
-    const source = fields.find((field) => field.key === "source");
-    expect(source).toMatchObject({
-      control: "select",
-      clearWhenEmpty: "omit",
-      label: "ACP source",
-    });
-    expect(source?.options).toEqual([
-      { value: "registry", label: "ACP Registry" },
-      { value: "local", label: "Local command" },
+    const fields = deriveProviderSettingsFields(antigravity!);
+    expect(fields.map((field) => field.key)).toEqual([
+      "authMethod",
+      "apiKey",
+      "gcpProject",
+      "gcpLocation",
+      "binaryPath",
     ]);
-    // Every other field falls back to a plain text control.
-    for (const field of fields.filter((candidate) => candidate.key !== "source")) {
-      expect(field.control).toBe("text");
-    }
+    const authMethod = fields.find((field) => field.key === "authMethod");
+    expect(authMethod).toMatchObject({ control: "select", clearWhenEmpty: "omit" });
+    expect(authMethod?.options?.map((option) => option.value)).toEqual([
+      "oauth-personal",
+      "oauth-business",
+      "gemini-api-key",
+      "agent-platform",
+    ]);
+    expect(fields.find((field) => field.key === "apiKey")?.control).toBe("password");
   });
 
   it("shows the auto-compaction threshold for Claude providers", () => {

@@ -189,10 +189,35 @@ it.effect("reports implemented tools separately from locally available executabl
           auth: "unknown",
           account: Option.none(),
         },
+        {
+          kind: SourceControlProviderKind.make("azure-devops"),
+          status: "missing",
+          auth: "unknown",
+          account: Option.none(),
+        },
+        {
+          kind: SourceControlProviderKind.make("bitbucket"),
+          status: "available",
+          auth: "unauthenticated",
+          account: Option.none(),
+        },
+        {
+          kind: SourceControlProviderKind.make("forgejo"),
+          status: "missing",
+          auth: "unknown",
+          account: Option.none(),
+        },
+        {
+          kind: SourceControlProviderKind.make("gitcafe"),
+          status: "missing",
+          auth: "unknown",
+          account: Option.none(),
+        },
       ],
     );
-    // The offline build registers GitHub and GitLab only.
-    assert.isUndefined(result.sourceControlProviders.find((item) => item.kind === "bitbucket"));
+    const bitbucket = result.sourceControlProviders.find((item) => item.kind === "bitbucket");
+    assert.ok(bitbucket);
+    assert.strictEqual(bitbucket.executable, undefined);
   }).pipe(Effect.provide(layerTest));
 });
 
@@ -313,6 +338,30 @@ Logged in to gitlab.com as gitlab-user
           kind: SourceControlProviderKind.make("gitlab"),
           auth: "authenticated",
           account: Option.some("gitlab-user"),
+          detail: Option.none(),
+        },
+        {
+          kind: SourceControlProviderKind.make("azure-devops"),
+          auth: "authenticated",
+          account: Option.some("azure-user@example.com"),
+          detail: Option.none(),
+        },
+        {
+          kind: SourceControlProviderKind.make("bitbucket"),
+          auth: "authenticated",
+          account: Option.some("bitbucket-user"),
+          detail: Option.none(),
+        },
+        {
+          kind: SourceControlProviderKind.make("forgejo"),
+          auth: "authenticated",
+          account: Option.some("forgejo-user"),
+          detail: Option.none(),
+        },
+        {
+          kind: SourceControlProviderKind.make("gitcafe"),
+          auth: "authenticated",
+          account: Option.some("cafe-user"),
           detail: Option.none(),
         },
       ],

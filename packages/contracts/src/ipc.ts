@@ -284,6 +284,12 @@ export interface DesktopUpdateState {
   message: string | null;
   errorContext: "check" | "download" | "install" | null;
   canRetry: boolean;
+  /**
+   * The version the last install handed to the OS installer that did not
+   * apply: the app came back on its old version. Server-triggered updates do
+   * not install it again; the user can retry it from the update button.
+   */
+  notAppliedVersion?: string;
 }
 
 export interface DesktopUpdateReleaseNote {
@@ -315,6 +321,7 @@ export const DesktopUpdateStateSchema = Schema.Struct({
   message: Schema.NullOr(Schema.String),
   errorContext: Schema.NullOr(Schema.Literals(["check", "download", "install"])),
   canRetry: Schema.Boolean,
+  notAppliedVersion: Schema.optionalKey(Schema.String),
 });
 
 /** The desktop app's `t3` command on PATH, managed from Settings. */
@@ -501,12 +508,16 @@ export interface DesktopServerExposureState {
   mode: DesktopServerExposureMode;
   endpointUrl: string | null;
   advertisedHost: string | null;
+  tailscaleServeEnabled: boolean;
+  tailscaleServePort: number;
 }
 
 export const DesktopServerExposureStateSchema = Schema.Struct({
   mode: DesktopServerExposureModeSchema,
   endpointUrl: Schema.NullOr(Schema.String),
   advertisedHost: Schema.NullOr(Schema.String),
+  tailscaleServeEnabled: Schema.Boolean,
+  tailscaleServePort: Schema.Number,
 });
 
 export interface PickFolderOptions {
@@ -1179,6 +1190,10 @@ export interface DesktopBridge {
   resolveSshPasswordPrompt: (requestId: string, password: string | null) => Promise<void>;
   getServerExposureState: () => Promise<DesktopServerExposureState>;
   setServerExposureMode: (mode: DesktopServerExposureMode) => Promise<DesktopServerExposureState>;
+  setTailscaleServeEnabled: (input: {
+    readonly enabled: boolean;
+    readonly port?: number;
+  }) => Promise<DesktopServerExposureState>;
   getAdvertisedEndpoints: () => Promise<readonly AdvertisedEndpoint[]>;
   getWslState: () => Promise<DesktopWslState>;
   setWslBackendEnabled: (enabled: boolean) => Promise<DesktopWslState>;

@@ -1,4 +1,6 @@
+import Constants from "expo-constants";
 import { relayClerkTokenOptions } from "@t3tools/shared/relayAuth";
+import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import * as Schema from "effect/Schema";
 
 export class CloudPublicConfigMissingError extends Schema.TaggedError<CloudPublicConfigMissingError>()(
@@ -37,25 +39,43 @@ type ExpoExtra =
     }
   | undefined;
 
-export function resolveCloudPublicConfig(_extra?: ExpoExtra) {
+function trimNonEmpty(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeSecureUrl(value: unknown): string | null {
+  const raw = trimNonEmpty(value);
+  if (raw === null) {
+    return null;
+  }
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveCloudPublicConfig(extra: ExpoExtra = Constants.expoConfig?.extra) {
   return {
     clerk: {
-      publishableKey: null,
-      jwtTemplate: null,
+      publishableKey: trimNonEmpty(extra?.clerk?.publishableKey),
+      jwtTemplate: trimNonEmpty(extra?.clerk?.jwtTemplate),
     },
     relay: {
-      url: null,
+      url: normalizeSecureRelayUrl(trimNonEmpty(extra?.relay?.url) ?? ""),
     },
     observability: {
-      tracesUrl: null,
-      tracesDataset: null,
-      tracesToken: null,
+      tracesUrl: normalizeSecureUrl(extra?.observability?.tracesUrl),
+      tracesDataset: trimNonEmpty(extra?.observability?.tracesDataset),
+      tracesToken: trimNonEmpty(extra?.observability?.tracesToken),
     },
   } satisfies CloudPublicConfig;
 }
 
 export function hasCloudPublicConfig(): boolean {
-  return false;
+  const config = resolveCloudPublicConfig();
+  return Boolean(config.clerk.publishableKey && config.clerk.jwtTemplate && config.relay.url);
 }
 
 type Configured<T> = {

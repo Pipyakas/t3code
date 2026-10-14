@@ -1,14 +1,14 @@
 # T3 Code
 
-This fork is an offline build of T3 Code for Windows desktop. It supports Claude Code, OpenCode, and ACP agents only. Outbound product telemetry and T3 Connect are removed; local resource diagnostics, local notifications, and direct self-hosted connections remain. Agents and user-requested network operations still need their own network access.
+This fork of T3 Code changes some defaults: Claude and OpenCode start enabled while Codex, Cursor, and Grok start off, and Git hosts other than GitHub and GitLab start off until enabled in Settings > Source control. It also runs the server as a Windows background service and supports SSH environments on Windows hosts.
 
-Desktop updates come from this fork's nightly releases, which merge upstream daily and build an unsigned Windows x64 installer. Mobile, macOS, and Linux releases are not maintained by this fork.
+Desktop updates come from this fork's nightly releases, which merge upstream daily and build an unsigned Windows x64 installer. Setting `T3CODE_OFFLINE=1` on a machine turns off telemetry, T3 Connect hosting, and Tailscale there; signing in to connect to other machines still works.
 
-The installation links below distribute **upstream T3 Code**, not this fork. Build this checkout to obtain the modified application.
+The installation links below distribute **upstream T3 Code**, not this fork.
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 
-Works with Claude Code, OpenCode, and agents using the Agent Client Protocol (ACP). Configure and authenticate those agents on your computer before use.
+Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
 
 ## "Wait, what are you selling me?"
 
@@ -19,11 +19,14 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 ## Installation
 
 > [!WARNING]
-> This fork supports Claude, OpenCode, and ACP. Install and authenticate at least one provider before use:
+> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
 >
+> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
 > - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
+> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
+> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
 > - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - ACP: configure an ACP-compatible agent executable in Settings.
+> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
 
 ### Command line
 
@@ -106,7 +109,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
 - [Keeping app and server in sync](./docs/user/updating.md)
 - [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Claude](./docs/user/providers-claude.md)
+- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
 - [Run T3 Code as a background service](./docs/user/background-service.md)
 
 Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).

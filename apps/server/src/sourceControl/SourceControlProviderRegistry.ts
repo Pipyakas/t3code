@@ -6,7 +6,9 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import {
+  isSourceControlHostEnabled,
   SourceControlProviderError,
+  type ServerSettings,
   type SourceControlProviderDiscoveryItem,
 } from "@t3tools/contracts";
 import type {} from "@t3tools/contracts";
@@ -22,6 +24,7 @@ import {
 import * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 
 import * as ServerConfig from "../config.ts";
+import * as ServerSettingsService from "../serverSettings.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
 const PROVIDER_DETECTION_CACHE_CAPACITY = 2_048;
@@ -200,14 +203,56 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
     const config = yield* ServerConfig.ServerConfig;
     const { process } = yield* SourceControlHost.SourceControlHost;
     const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
+    const serverSettings = yield* ServerSettingsService.ServerSettingsService;
     const providers = new Map<
       SourceControlProviderKind,
       SourceControlProvider.SourceControlProvider["Service"]
     >(registrations.map((registration) => [registration.kind, registration.provider]));
     const discoverySpecs = registrations.map((registration) => registration.discovery);
 
+    // Settings decide at call time, so flipping a host's switch needs no restart. A host that is
+    // switched off resolves like one this build never registered, which is what its own calls
+    // already handle.
+    const providerFor = (
+      kind: SourceControlProviderKind,
+      settings: ServerSettings,
+    ): SourceControlProvider.SourceControlProvider["Service"] => {
+      const provider = providers.get(kind);
+      if (
+        provider === undefined ||
+        !isSourceControlHostEnabled(kind, settings.sourceControlHosts)
+      ) {
+        return unsupportedProvider(kind);
+      }
+      return provider;
+    };
+
+    // A registry read that cannot see Settings cannot say which hosts are on. Reporting that as
+    // the provider failure it is keeps this registry's one error type for callers.
+    const providerForKind = (
+      kind: SourceControlProviderKind,
+      operation: string,
+      cwd: string,
+    ): Effect.Effect<
+      SourceControlProvider.SourceControlProvider["Service"],
+      SourceControlProviderError
+    > =>
+      serverSettings.getSettings.pipe(
+        Effect.mapError(
+          (cause) =>
+            new SourceControlProviderError({
+              provider: kind,
+              operation,
+              cwd,
+              detail: "Settings could not be read.",
+              cause,
+            }),
+        ),
+        Effect.map((settings) => providerFor(kind, settings)),
+      );
+
     const get: SourceControlProviderRegistry["Service"]["get"] = (kind) =>
-      Effect.succeed(providers.get(kind) ?? unsupportedProvider(kind));
+      providerForKind(kind, "get", "");
 
     const detectProviderContext = Effect.fn("SourceControlProviderRegistry.detectProviderContext")(
       function* (cwd: string) {
@@ -265,13 +310,17 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
             context: input.context,
           })
       ).pipe(
-        Effect.map((context) => {
+        Effect.flatMap((context) => {
           const kind = context?.provider.kind ?? SourceControlProviderKind.make("unknown");
-          const provider = providers.get(kind) ?? unsupportedProvider(kind);
-          return {
-            provider: bindProviderContext(provider, context),
-            context,
-          } satisfies SourceControlProviderHandle;
+          return providerForKind(kind, "resolve", input.cwd).pipe(
+            Effect.map(
+              (provider) =>
+                ({
+                  provider: bindProviderContext(provider, context),
+                  context,
+                }) satisfies SourceControlProviderHandle,
+            ),
+          );
         }),
       );
 
@@ -286,15 +335,38 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       get,
       resolveHandle,
       resolve: (input) => resolveHandle(input).pipe(Effect.map((handle) => handle.provider)),
-      discover: Effect.forEach(
-        discoverySpecs,
-        (spec) =>
-          probeSourceControlProvider({
-            spec,
-            process,
-            cwd: config.cwd,
-          }),
-        { concurrency: "unbounded" },
+      discover: Effect.flatMap(
+        // Discovery is a report, not a call: Settings unreadable leaves every host on its
+        // default rather than failing the whole scan.
+        serverSettings.getSettings.pipe(
+          Effect.map((settings) => settings.sourceControlHosts),
+          Effect.catch((cause) =>
+            Effect.as(
+              Effect.logWarning("Could not read settings; source control hosts take defaults", cause),
+              undefined,
+            ),
+          ),
+        ),
+        (sourceControlHosts) =>
+          Effect.forEach(
+            discoverySpecs,
+            (spec) =>
+              probeSourceControlProvider({
+                spec,
+                process,
+                cwd: config.cwd,
+              }),
+            { concurrency: "unbounded" },
+          ).pipe(
+            // Discovery still reports every host the build ships, so Settings can show a
+            // switched-off one and switch it back on.
+            Effect.map((items) =>
+              items.map((item) => ({
+                ...item,
+                enabled: isSourceControlHostEnabled(item.kind, sourceControlHosts),
+              })) satisfies ReadonlyArray<SourceControlProviderDiscoveryItem>,
+            ),
+          ),
       ),
     });
   },

@@ -46,7 +46,6 @@ import * as ProviderHostLive from "./ProviderHostLive.ts";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import type * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import type * as ServerConfig from "../config.ts";
-import type * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 
 type ProviderInstanceRegistryHydrationEnv =
   | Exclude<
@@ -58,8 +57,7 @@ type ProviderInstanceRegistryHydrationEnv =
   | Settings.ServerSettingsService
   // Requirements of the `ProviderHost.ProviderHost` the drivers receive.
   | BackgroundPolicy.BackgroundPolicy
-  | ServerConfig.ServerConfig
-  | ServerSecretStore.ServerSecretStore;
+  | ServerConfig.ServerConfig;
 
 /**
  * Explicit `providerInstances` entries plus an implicit default instance for

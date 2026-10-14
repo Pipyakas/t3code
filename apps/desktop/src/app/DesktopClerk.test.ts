@@ -114,7 +114,7 @@ describe("DesktopClerk", () => {
       ]);
       assert.equal(cleanup.mock.calls.length, 1);
       // The bridge acquires Electron's single-instance lock at creation, and
-      // the lock both lives in and creates the userData directory ΓÇö so the
+      // the lock both lives in and creates the userData directory — so the
       // real path must be set before the bridge exists.
       assert.deepEqual(events, ["setPath:userData:/tmp/app-data/t3code-dev", "createClerkBridge"]);
       storageMock.mockClear();

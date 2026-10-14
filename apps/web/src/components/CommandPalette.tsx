@@ -1574,7 +1574,7 @@ function OpenCommandPaletteDialog(props: {
 
       const orderedSources: ReadonlyArray<AddProjectRemoteSource> = [
         "url",
-        ...sortAddProjectProviderSources(readinessBySource),
+        ...sortAddProjectProviderSources(readinessBySource, sourceControlDiscovery.data),
       ];
 
       for (const source of orderedSources) {
