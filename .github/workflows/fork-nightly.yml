@@ -157,6 +157,19 @@ jobs:
           T3CODE_UPSTREAM_VERSION: ${{ needs.meta.outputs.upstream }}
         run: node apps/server/scripts/cli.ts build-exe --verbose
 
+      # A server built without T3's public config cannot host T3 Connect, and
+      # every service updated to it drops off the relay (nightly 3106).
+      - name: Check T3 Connect config is built in
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$T3CODE_RELAY_URL" "$T3CODE_CLERK_PUBLISHABLE_KEY" "$T3CODE_CLERK_CLI_OAUTH_CLIENT_ID"; do
+            [ -n "$value" ] && grep -qF -- "$value" apps/server/dist-exe/bin.mjs || {
+              echo "::error::apps/server/dist-exe/bin.mjs is missing T3 Connect config ($value)"
+              exit 1
+            }
+          done
+
       - name: Build CLI archive
         shell: bash
         run: |
@@ -237,6 +250,19 @@ jobs:
           VP_NODE_VERSION: "26.8.2"
           T3CODE_UPSTREAM_VERSION: ${{ needs.meta.outputs.upstream }}
         run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      # A server built without T3's public config cannot host T3 Connect, and
+      # every service updated to it drops off the relay (nightly 3106).
+      - name: Check T3 Connect config is built in
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$T3CODE_RELAY_URL" "$T3CODE_CLERK_PUBLISHABLE_KEY" "$T3CODE_CLERK_CLI_OAUTH_CLIENT_ID"; do
+            [ -n "$value" ] && grep -qF -- "$value" apps/server/dist-exe/bin.mjs || {
+              echo "::error::apps/server/dist-exe/bin.mjs is missing T3 Connect config ($value)"
+              exit 1
+            }
+          done
 
       - name: Build CLI archive
         shell: bash
