@@ -361,7 +361,9 @@ describe("EnvironmentProviderSettings routing", () => {
     ],
   ])("saves %s on the selected environment for every connected client", (action, expected) => {
     atoms.providers = [provider()];
-    const panel = renderPanel();
+    // Target the Codex row explicitly: which row the panel pre-selects follows
+    // the provider list order, and these cases are about where the write lands.
+    const panel = renderPanel({ targetInstanceId: codexId });
     const editor = visitElements(
       panel,
       (element) => element.props.instanceId === codexId && element.props.mode === "editor",

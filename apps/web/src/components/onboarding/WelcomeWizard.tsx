@@ -666,7 +666,7 @@ function PairingForm({
 
 // ── Step 3: agents ───────────────────────────────────────────
 
-const PRIMARY_AGENT_DRIVERS = ["opencode", "claudeAgent"] as const;
+const PRIMARY_AGENT_DRIVERS = ["claudeAgent", "opencode"] as const;
 type OnboardingAgentDriver = (typeof PRIMARY_AGENT_DRIVERS)[number];
 
 /** Setup values stay fixed while provider probes refresh the surrounding cards. */
