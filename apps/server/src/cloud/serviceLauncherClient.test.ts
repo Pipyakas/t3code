@@ -37,8 +37,17 @@ class FakeLauncherProcess {
     this.#listeners.get(event)?.delete(listener);
   };
 
+  shutdownRequests = 0;
+  requestShutdown = () => {
+    this.shutdownRequests += 1;
+  };
+
   emit(message: ServiceLauncherParentMessage) {
     for (const listener of this.#listeners.get("message") ?? []) listener(message);
+  }
+
+  disconnect() {
+    for (const listener of this.#listeners.get("disconnect") ?? []) listener();
   }
 }
 
@@ -134,5 +143,22 @@ it.effect("rejects contradictory trial context instead of leaving activation clo
     });
     const error = yield* makeClient(host, "1.1.0").pipe(Effect.flip);
     expect(error.message).toBe("The service launcher supplied invalid startup context.");
+  }),
+);
+
+it.effect("shuts down when the launcher asks or goes away", () =>
+  Effect.gen(function* () {
+    const host = new FakeLauncherProcess({
+      protocol: SERVICE_LAUNCHER_PROTOCOL,
+      childVersion: "1.0.0",
+    });
+    yield* makeClient(host, "1.0.0");
+
+    host.emit({ type: "update-rejected", reason: "unrelated" });
+    expect(host.shutdownRequests).toBe(0);
+    host.emit({ type: "shutdown" });
+    expect(host.shutdownRequests).toBe(1);
+    host.disconnect();
+    expect(host.shutdownRequests).toBe(2);
   }),
 );

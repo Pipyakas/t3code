@@ -1,7 +1,7 @@
 # Running T3 Code in the background
 
-On Linux and macOS, T3 Code can run as a service for your user so you do not need
-to keep a terminal open.
+On Linux, macOS, and Windows, T3 Code can run as a service for your user so you
+do not need to keep a terminal open.
 
 ## Manage the service
 
@@ -51,16 +51,29 @@ Mac logged in and awake for unattended remote access. Installing over SSH while
 nobody is logged in at the Mac's screen can fail at the final start step; the
 service is still installed and will start at the next login.
 
-Windows background services are not supported.
+On Windows the service is a scheduled task that starts when the machine boots,
+before anyone logs in, and runs as your account. Registering it needs
+administrator rights: run `t3 service install` from an elevated terminal, or over
+SSH as an administrator (Windows SSH sessions of administrators are already
+elevated). Run it as the account that owns your T3 Code data, not a separate
+admin account.
+
+The task runs without storing your password, which limits what agent work can
+reach:
+
+- Windows-protected secrets, such as Git Credential Manager entries, are not
+  available. Use SSH keys or token files for git.
+- Network shares that need your Windows credentials are not reachable.
+- Programs it starts have no visible window.
 
 T3 Connect can offer service installation during setup, but the two are managed
 separately. Signing out of T3 Connect does not stop or uninstall the service.
 
 ## Troubleshooting
 
-Start with `t3 service status` on the host. It prints the log path and, on Linux,
-checks whether the installed service is running, enabled, and allowed to survive
-logout.
+Start with `t3 service status` on the host. It prints the log path and, on Linux
+and Windows, checks whether the installed service is running and enabled. On
+Linux it also checks that the service is allowed to survive logout.
 
 If it stops when your SSH session closes, check for `linger-disabled`. An
 administrator can enable lingering with:
@@ -86,6 +99,7 @@ that session open.
 | `user-manager-unavailable`              | Run `systemctl --user status` in a login session for the service user; check your distribution's systemd user-session support. |
 | `service-disabled` or `service-stopped` | Read the log and `systemctl --user status t3code.service`, then use the repair command printed by T3 Code.                     |
 | `restart-pending`                       | A newer version is installed but the service still runs the previous one. Run `t3 service restart`.                            |
+| `elevation-required`                    | Windows only. Rerun the command from an elevated terminal, as the account that owns your T3 Code data.                         |
 
 On macOS, check **System Settings → General → Login Items** if the service no
 longer starts at login. If agent work cannot access Desktop, Documents, or
