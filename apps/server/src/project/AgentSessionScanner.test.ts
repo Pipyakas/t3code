@@ -52,6 +52,22 @@ interface ScannerTestInput {
   readonly providerInstances?: ContractServerSettings["providerInstances"];
 }
 
+// Codex starts off in this fork, so a Codex instance a test declares counts as enabled
+// unless the test disables it itself.
+const enableCodexInstances = (
+  instances: ContractServerSettings["providerInstances"] | undefined,
+): ContractServerSettings["providerInstances"] =>
+  Object.fromEntries(
+    Object.entries(instances ?? {}).map(([id, instance]) => {
+      const config = instance.config as { readonly enabled?: unknown } | undefined;
+      return instance.driver === ProviderDriverKind.make("codex") &&
+        instance.enabled === undefined &&
+        config?.enabled === undefined
+        ? [id, { ...instance, enabled: true }]
+        : [id, instance];
+    }),
+  );
+
 const layerScannerTest = (input: ScannerTestInput) =>
   AgentSessionScanner.layer.pipe(
     Layer.provide(
@@ -62,8 +78,10 @@ const layerScannerTest = (input: ScannerTestInput) =>
               driver: ProviderDriverKind.make("claudeAgent"),
               config: { homePath: input.claudeHomePath },
             },
+            // Codex starts off in this fork; these tests scan its sessions.
             [ProviderInstanceId.make("codex")]: {
               driver: ProviderDriverKind.make("codex"),
+              enabled: true,
               config: { homePath: input.codexHomePath },
             },
             // Keeps the default Pi instance off the developer's real ~/.pi.
@@ -80,7 +98,7 @@ const layerScannerTest = (input: ScannerTestInput) =>
               ],
               config: {},
             },
-            ...input.providerInstances,
+            ...enableCodexInstances(input.providerInstances),
           },
         }),
         ServerConfig.layerTest(
