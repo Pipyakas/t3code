@@ -128,6 +128,14 @@ protection takes effect at once. The server's protection from the kernel's
 out-of-memory killer takes effect after `t3 service restart`. `t3 service status` reports whether
 the protection is in place, and `t3 service protect --undo` removes it.
 
+## With the desktop app
+
+When the desktop app opens while the service is running on the same machine,
+it uses the service instead of starting its own server, and quitting the app
+leaves the service running. Quit the app before `t3 service install`, then
+reopen it. The app's network access settings do not change the service's
+address.
+
 ## Troubleshooting
 
 Start with `t3 service status` on the host. It prints the log path and, on Linux
