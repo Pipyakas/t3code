@@ -123,4 +123,54 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))("t3 up with T3 Co
       expect(yield* fs.readFileString(`${baseDir}/service.env`)).toBe("T3CODE_LAN=false\n");
     }),
   );
+
+  it.effect("offline mode refuses --connect without linking", () =>
+    Effect.gen(function* () {
+      events.length = 0;
+      link.desired = false;
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-up-offline-test-" });
+      yield* fs.writeFileString(`${baseDir}/service.env`, "T3CODE_LAN=false\n");
+      vi.spyOn(BootService, "layer").mockReturnValue(
+        Layer.succeed(
+          BootService.BootService,
+          BootService.BootService.of({
+            status: Effect.succeed({
+              supported: true,
+              installed: true,
+              current: true,
+              unitPath: "/home/me/.config/systemd/user/t3code.service",
+              logPath: "/home/me/.t3/userdata/logs/boot-service.log",
+            }),
+            withStopped: (operation) => operation,
+            restart: Effect.sync(() => {
+              events.push("restart");
+              return "restarted" as const;
+            }),
+            install: () => Effect.die("an installed, current service is not reinstalled"),
+            uninstall: Effect.succeed(false),
+          }),
+        ),
+      );
+
+      const exit = yield* Command.runWith(upCommand, { version: packageJson.version })([
+        "--base-dir",
+        baseDir,
+        "--connect",
+      ]).pipe(
+        Effect.provideService(HostProcess.Environment, {}),
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_OFFLINE: "1" } })),
+            Layer.fresh(TestConsole.layer),
+          ),
+        ),
+        Effect.exit,
+      );
+
+      expect(exit._tag).toBe("Failure");
+      expect(events).toEqual([]);
+      expect(link.desired).toBe(false);
+    }),
+  );
 });

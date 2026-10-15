@@ -3,6 +3,7 @@ import * as NodeModule from "node:module";
 import { it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
@@ -67,14 +68,25 @@ const resolveTargets = (input: {
   readonly tailscale: { readonly status: CommandResult; readonly prefs: CommandResult };
   readonly hostname: string;
   readonly username?: string | null;
+  readonly offline?: boolean;
 }) => {
   const resolve = Effect.flatMap(RemoteOpenTargets.RemoteOpenTargets, (service) =>
     service.resolveTargets(),
   ).pipe(
     Effect.provideService(HostProcess.Hostname, input.hostname),
+    // The offline flag is read when the layer builds, so its provider is
+    // merged into the same stack as the service's own dependencies.
     Effect.provide(
       RemoteOpenTargets.layer.pipe(
-        Layer.provide(Layer.mergeAll(layerNet(input.sshd), layerSpawner(input.tailscale))),
+        Layer.provide(
+          Layer.mergeAll(
+            layerNet(input.sshd),
+            layerSpawner(input.tailscale),
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({ T3CODE_OFFLINE: input.offline ? "1" : "0" }),
+            ),
+          ),
+        ),
       ),
     ),
   );
@@ -134,6 +146,21 @@ describe("RemoteOpenTargets", () => {
         username: null,
       });
       expect(targets).toEqual([]);
+    }),
+  );
+
+  it.effect("in offline mode never advertises the tailnet name, even when tailscale is up", () =>
+    Effect.gen(function* () {
+      // Offline mode: the tailscale CLI is never spawned and only the mDNS
+      // target is offered.
+      const targets = yield* resolveTargets({
+        sshd: { ipv4: true, ipv6: true },
+        tailscale: TAILSCALE_UP,
+        hostname: "bb-1",
+        username: "t3-user",
+        offline: true,
+      });
+      expect(targets).toEqual([{ kind: "mdns", host: "bb-1.local", username: "t3-user" }]);
     }),
   );
 
