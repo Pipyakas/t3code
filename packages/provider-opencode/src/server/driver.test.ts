@@ -80,6 +80,12 @@ const create = (config: Partial<OpenCodeSettings>, http: HttpClient.HttpClient) 
   }).pipe(Effect.provideService(HttpClient.HttpClient, http));
 
 const noHttp = HttpClient.make(() => Effect.die("A local binary must not be probed over HTTP"));
+// The host's own OpenCode sign-in may exist, so the Go usage endpoint answers "signed out".
+const usageOnlyHttp = HttpClient.make((request) =>
+  request.url.endsWith("/zen/go/v1/usage")
+    ? Effect.succeed(HttpClientResponse.fromWeb(request, new Response("{}", { status: 401 })))
+    : Effect.die("A local binary must not be probed over HTTP"),
+);
 
 it.live("discovers models through a home-relative OpenCode wrapper", () =>
   Effect.gen(function* () {
@@ -665,7 +671,7 @@ it.layer(layerUpdate)("OpenCodeDriver updates", (it) => {
     () =>
       Effect.gen(function* () {
         versionOutput.current = "1.18.18\n";
-        const instance = yield* create({}, noHttp);
+        const instance = yield* create({}, usageOnlyHttp);
         // Let the startup status check claim the refresh permit, then wait behind it so it
         // cannot probe after the upgrade below.
         yield* Effect.yieldNow;
