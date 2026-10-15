@@ -37,7 +37,22 @@ import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
 import * as Result from "effect/Result";
 import { PlusIcon } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { cloneElement, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import {
@@ -94,8 +109,9 @@ import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { useManagedPolicy } from "~/state/managedPolicy";
 import { ExpandableText } from "./ExpandableText";
 import { IntervalSecondsField } from "./IntervalSecondsField";
-import { ProviderInstanceCard } from "./ProviderInstanceCard";
+import { ProviderInstanceCard, type ProviderRowSortableProps } from "./ProviderInstanceCard";
 import { useSecretSources } from "./SecretSourceInput";
+import { orderProviderInstanceEntries } from "../../providerInstances";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
@@ -166,6 +182,50 @@ const PROVIDER_SETTINGS = providerClients.definitions.map((definition) => ({
   provider: definition.driverKind,
   hasDefaultInstance: definition.hasDefaultInstance !== false,
 }));
+
+// Distance keeps a plain press from starting a drag; the handle owns the
+// pointer anyway, so selection clicks on the row are never contested.
+// Built-ins that start off and can be dropped from Settings > Providers.
+const REMOVABLE_BUILT_IN_DRIVERS: ReadonlySet<string> = new Set(["grok", "cursor"]);
+
+const PROVIDER_ROW_SENSORS = [
+  { sensor: PointerSensor, options: { activationConstraint: { distance: 4 } } },
+  { sensor: KeyboardSensor, options: { coordinateGetter: sortableKeyboardCoordinates } },
+];
+
+/**
+ * Mounts one provider row in the sortable list and injects the dnd-kit wiring
+ * into the card. Row count varies with configuration, so `useSortable` cannot
+ * run in the panel body; the card receives the wiring as a `sortable` prop and
+ * renders the drag handle itself.
+ */
+function SortableProviderRow(props: {
+  readonly id: ProviderInstanceId;
+  readonly disabled: boolean;
+  readonly children: ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: props.id, disabled: { draggable: props.disabled } });
+  const sortable: ProviderRowSortableProps = {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  };
+  return cloneElement(props.children as ReactElement<{ sortable?: ProviderRowSortableProps }>, {
+    sortable,
+  });
+}
 
 function configuredBinaryPath(config: unknown): string {
   if (config === null || typeof config !== "object" || !("binaryPath" in config)) return "";
@@ -790,13 +850,36 @@ export function EnvironmentProviderSettings({
     }
   }
 
+  // The stored order is a partial list: arranged ids come first, the rest
+  // keep the build order above, so a new provider lands at the end.
+  const orderedRows = orderProviderInstanceEntries(rows, settings.providerOrder ?? []);
+  const canReorder = !readOnly && canWriteSettings;
+  const handleProviderDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!canReorder || over === null) return;
+    const from = orderedRows.findIndex((row) => row.instanceId === active.id);
+    const to = orderedRows.findIndex((row) => row.instanceId === over.id);
+    if (from < 0 || to < 0 || from === to) return;
+    // `setProviderOrder` is a patch delta, not a settings field, so the generic
+    // settings update would route it to client settings and drop it.
+    void updateModelPreferences({
+      setProviderOrder: {
+        order: arrayMove(
+          orderedRows.map((row) => row.instanceId),
+          from,
+          to,
+        ),
+      },
+    });
+  };
+
   const targetInstanceMissing =
     targetInstanceId !== undefined &&
     selectedInstanceId === targetInstanceId &&
-    !rows.some((row) => row.instanceId === targetInstanceId);
+    !orderedRows.some((row) => row.instanceId === targetInstanceId);
   const selectedRow =
-    rows.find((row) => row.instanceId === selectedInstanceId) ??
-    (targetInstanceMissing ? null : (rows[0] ?? null));
+    orderedRows.find((row) => row.instanceId === selectedInstanceId) ??
+    (targetInstanceMissing ? null : (orderedRows[0] ?? null));
 
   const persistInstance = async (
     instanceId: ProviderInstanceId,
@@ -1065,19 +1148,39 @@ export function EnvironmentProviderSettings({
               chainVerticalScroll
               className="@min-[48rem]/providers:min-h-0 @min-[48rem]/providers:flex-1"
             >
-              <div className="divide-y divide-border/50">
-                {rows.map((row) => renderProviderInstance(row, "list"))}
-                {canAddProvider ? (
-                  <button
-                    type="button"
-                    className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left text-sm text-muted-foreground transition-colors outline-none hover:bg-muted/25 hover:text-foreground focus-visible:bg-muted/25 focus-visible:text-foreground sm:px-4"
-                    onClick={() => setIsAddInstanceDialogOpen(true)}
-                  >
-                    <PlusIcon className="size-4 shrink-0" />
-                    Add provider
-                  </button>
-                ) : null}
-              </div>
+              <DndContext
+                sensors={PROVIDER_ROW_SENSORS}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+                onDragEnd={handleProviderDragEnd}
+              >
+                <SortableContext
+                  items={orderedRows.map((row) => row.instanceId)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="divide-y divide-border/50">
+                    {orderedRows.map((row) => (
+                      <SortableProviderRow
+                        key={row.instanceId}
+                        id={row.instanceId}
+                        disabled={!canReorder}
+                      >
+                        {renderProviderInstance(row, "list")}
+                      </SortableProviderRow>
+                    ))}
+                    {canAddProvider ? (
+                      <button
+                        type="button"
+                        className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left text-sm text-muted-foreground transition-colors outline-none hover:bg-muted/25 hover:text-foreground focus-visible:bg-muted/25 focus-visible:text-foreground sm:px-4"
+                        onClick={() => setIsAddInstanceDialogOpen(true)}
+                      >
+                        <PlusIcon className="size-4 shrink-0" />
+                        Add provider
+                      </button>
+                    ) : null}
+                  </div>
+                </SortableContext>
+              </DndContext>
             </ScrollArea>
           </div>
 
@@ -1243,6 +1346,7 @@ function ProviderInstanceRow({
   projectOverrideEffectiveEnabled,
   modelPreferences,
   favorites,
+  sortable,
   actions,
 }: {
   readonly environmentId: EnvironmentId;
@@ -1265,6 +1369,8 @@ function ProviderInstanceRow({
     | { readonly hiddenModels: ReadonlyArray<string>; readonly modelOrder: ReadonlyArray<string> }
     | undefined;
   readonly favorites: UnifiedSettings["favorites"];
+  /** Drag-to-reorder wiring for a list row; the editor never gets one. */
+  readonly sortable?: ProviderRowSortableProps | undefined;
   readonly actions: ProviderInstanceRowActions;
 }) {
   const allProjects = useProjects();
@@ -1295,6 +1401,14 @@ function ProviderInstanceRow({
         onReset: () => actions.writeProjectOverride(instanceId, undefined),
       }
     : undefined;
+  // Grok and Cursor start off and leave the list once their saved settings
+  // are cleared, so removing one switched off is that reset. Providers in
+  // use, and those the list always shows, are never offered.
+  const isRemovableDefault =
+    isDefault &&
+    isDirty &&
+    REMOVABLE_BUILT_IN_DRIVERS.has(driver) &&
+    !resolveProviderInstanceEnabled(instance);
   const codexSetupMode = driver === "codex" ? readCodexSetupMode(instance.config) : null;
   const recommendedVersion = liveProvider?.compatibilityAdvisory?.recommendedVersion;
   const canInstallRecommended =
@@ -1309,6 +1423,7 @@ function ProviderInstanceRow({
       environmentId={environmentId}
       secretSources={secretSources}
       acpProjects={acpProjects}
+      sortable={sortable}
       projectOverride={projectOverride}
       onAcceptUrlAuth={
         readOnly ? undefined : (action) => actions.acceptUrlAuthentication(instanceId, action)
@@ -1391,12 +1506,12 @@ function ProviderInstanceRow({
       }
       onUpdate={(next) => actions.updateInstance(instanceId, instance, next)}
       onDelete={
-        mode === "editor" && !isDefault
+        mode === "editor" && (!isDefault || isRemovableDefault)
           ? () => actions.deleteInstance(instanceId, instance)
           : undefined
       }
       headerAction={
-        mode === "editor" && isDefault && isDirty ? (
+        mode === "editor" && isDefault && isDirty && !isRemovableDefault ? (
           <SettingResetButton
             label={`${resetLabel} provider settings`}
             onClick={() => actions.resetDefaultInstance(driver)}
