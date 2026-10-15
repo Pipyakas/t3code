@@ -3575,6 +3575,97 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 
+  it.effect("keeps a follow-up task linked when a later run snapshot omits it", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const later = DateTime.add(now, { seconds: 1 });
+      const threadId = ThreadId.make("thread:projection-follow-up-task-link");
+      const runId = RunId.make("run:projection-follow-up-task-link");
+      const rootNodeId = NodeId.make("node:projection-follow-up-task-link-root");
+      const taskId = NodeId.make("node:projection-follow-up-task-link-task");
+      const thread = {
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        id: threadId,
+        projectId: ProjectId.make("project:projection-follow-up-task-link"),
+        title: "Follow-up task link",
+        providerInstanceId,
+        modelSelection,
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+        branch: null,
+        worktreePath: null,
+        activeProviderThreadId: null,
+        lineage: {
+          parentThreadId: null,
+          relationshipToParent: null,
+          rootThreadId: threadId,
+        },
+        forkedFrom: null,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      };
+      const run = {
+        id: runId,
+        threadId,
+        ordinal: 1,
+        providerInstanceId,
+        modelSelection,
+        providerThreadId: null,
+        userMessageId: MessageId.make("message:projection-follow-up-task-link"),
+        rootNodeId,
+        activeAttemptId: null,
+        status: "running" as const,
+        requestedAt: now,
+        startedAt: now,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+        // A follow-up stamps itself onto the run already in flight.
+        delegatedTaskId: taskId,
+      };
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-follow-up-task-link:thread"),
+        type: "thread.created",
+        threadId,
+        occurredAt: now,
+        payload: thread,
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-follow-up-task-link:run"),
+        type: "run.updated",
+        threadId,
+        runId,
+        nodeId: rootNodeId,
+        providerInstanceId,
+        occurredAt: now,
+        payload: run,
+      });
+
+      // The provider's next status snapshot knows nothing about the task.
+      const { delegatedTaskId: _delegatedTaskId, ...unlinked } = run;
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-follow-up-task-link:terminal"),
+        type: "run.updated",
+        threadId,
+        runId,
+        nodeId: rootNodeId,
+        providerInstanceId,
+        occurredAt: later,
+        payload: { ...unlinked, status: "completed" as const, completedAt: later },
+      });
+
+      const projection = yield* projectionStore.getThreadProjection(threadId);
+      assert.deepEqual(projection.runs[0]?.delegatedTaskId, taskId);
+    }),
+  );
+
   it.effect("only exposes interruptible runs through the shell activeRunId", () =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
