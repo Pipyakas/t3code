@@ -170,6 +170,12 @@ describe("AddProviderInstanceDialog environment routing", () => {
       providerInstances: { codex_2: { driver: "codex", enabled: false } },
     });
     await using _screen = await render(dialog());
+    // Codex renders a ChatGPT sign-in branch first; pick it explicitly so this
+    // test does not move when the dialog's default driver changes.
+    const codex = [...document.querySelectorAll('[role="radio"]')].find((radio) =>
+      radio.textContent?.includes("Codex"),
+    ) as HTMLElement;
+    await act(async () => codex.click());
     await click("Configure manually");
     await click("Next");
     await click("Add instance");

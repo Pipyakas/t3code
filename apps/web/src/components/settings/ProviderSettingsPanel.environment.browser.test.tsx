@@ -282,7 +282,7 @@ describe("EnvironmentProviderSettings routing", () => {
   it("reads and writes settings on the selected environment", async () => {
     await setup();
     await using _screen = await render(panel());
-    await expect.element(select("Codex")).toBeVisible();
+    await expect.element(select("Claude")).toBeVisible();
     expect(new Set(state.readEnvironmentIds)).toEqual(new Set([environmentId]));
     expect(new Set(state.updateEnvironmentIds)).toEqual(new Set([environmentId]));
     expect(new Set(state.mutationEnvironmentIds)).toEqual(new Set([environmentId]));
@@ -327,7 +327,9 @@ describe("EnvironmentProviderSettings routing", () => {
   it("saves model favorites and visibility on the selected environment", async () => {
     await setup();
     await setProviders([provider()]);
-    await using _screen = await render(panel());
+    // Target the Codex row explicitly: which row the panel pre-selects follows
+    // the provider list order, and this case is about where the write lands.
+    await using _screen = await render(panel({ targetInstanceId: codexId }));
 
     await userEvent.click(button("Add Chosen to favorites"));
     expect(state.toggleFavorite).toHaveBeenCalledExactlyOnceWith(codexId, "chosen");
