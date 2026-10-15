@@ -266,6 +266,7 @@ describe("t3 pair", () => {
         send: () => false,
         on: () => undefined,
         off: () => undefined,
+        requestShutdown: () => undefined,
       }),
     ),
   );
