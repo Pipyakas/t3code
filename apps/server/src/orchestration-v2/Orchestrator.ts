@@ -10733,6 +10733,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         readonly settledContinuationOf?: RunId;
         readonly syncRunId?: RunId;
         readonly task: OrchestrationV2Subagent;
+        /** When this task is a follow-up rather than the node the child forked from. */
+        readonly taskStartedAt?: DateTime.Utc;
         readonly resultRun?: OrchestrationV2Run;
       },
     ) {
@@ -10750,7 +10752,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         taskRuns.length === 0
           ? options.task.id === forkedFrom.nodeId
             ? options.resultRun
-            : undefined
+            : // A follow-up rides whichever child run was already in flight when the
+              // task was created. Older snapshots lost its delegatedTaskId, so fall
+              // back to the run whose lifetime covers the task instead of resolving
+              // to nothing and leaving the task running for the thread's life.
+              options.taskStartedAt === undefined
+              ? undefined
+              : childControls.runs.find(
+                  (run) =>
+                    run.startedAt !== null &&
+                    run.startedAt <= options.taskStartedAt! &&
+                    (run.completedAt === null || run.completedAt >= options.taskStartedAt!),
+                )
           : taskRuns.toSorted((a, b) => b.ordinal - a.ordinal)[0];
       if (childRun === undefined) return;
       const outcome = runOutcome(childRun);
@@ -11060,6 +11073,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       yield* finalizeAppOwnedSubagentTask(childControls, {
         ...options,
         task,
+        ...(task.startedAt === null ? {} : { taskStartedAt: task.startedAt }),
         ...(progress.resultRun === undefined ? {} : { resultRun: progress.resultRun }),
       });
     }
