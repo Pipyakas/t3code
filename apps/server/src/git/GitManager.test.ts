@@ -3658,6 +3658,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
               driver: ProviderDriverKind.make("missing-driver"),
               config: {},
             },
+            // Codex starts off in this fork; the fallback writer under test is Codex.
+            [ProviderInstanceId.make("codex")]: {
+              driver: ProviderDriverKind.make("codex"),
+              enabled: true,
+            },
           },
           sourceControlWriterModelSelection: {
             instanceId: missingInstanceId,
@@ -3700,6 +3705,13 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
 
       const { manager } = yield* makeManager({
         serverSettings: {
+          // Codex starts off in this fork; this project's writer is a Codex instance.
+          providerInstances: {
+            [ProviderInstanceId.make("codex")]: {
+              driver: ProviderDriverKind.make("codex"),
+              enabled: true,
+            },
+          },
           projectSettingsOverrides: { [projectId]: { textGenerationModelSelection: projectModel } },
         },
         textGeneration: {
