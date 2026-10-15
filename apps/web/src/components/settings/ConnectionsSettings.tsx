@@ -157,6 +157,7 @@ import {
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
   supportsServerUpdateThreadContinuation,
+  useIgnoredVersionUpdateEnvironments,
 } from "~/versionSkew";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { RemoveT3ConnectEnvironmentDialog } from "../clerk/RemoveT3ConnectEnvironmentDialog";
@@ -1546,6 +1547,8 @@ function SavedBackendListRow({
       );
     },
   });
+  const [ignoredVersionUpdates, setIgnoredVersionUpdates] = useIgnoredVersionUpdateEnvironments();
+  const versionUpdatesIgnored = ignoredVersionUpdates.includes(environmentId);
   const versionMismatch = resolveServerConfigVersionMismatch(environment.serverConfig);
   const serverUpdateState = useAtomValue(serverEnvironment.updateStateAtom(environmentId));
   const resumingServerUpdate =
@@ -1776,6 +1779,17 @@ function SavedBackendListRow({
           <MenuItem onClick={() => setRoutesOpen((open) => !open)}>
             <RouteIcon />
             {routesOpen ? "Hide routes" : "Routes"}
+          </MenuItem>
+          <MenuItem
+            onClick={() =>
+              setIgnoredVersionUpdates((ids) =>
+                ids.includes(environmentId)
+                  ? ids.filter((id) => id !== environmentId)
+                  : [...ids, environmentId],
+              )
+            }
+          >
+            {versionUpdatesIgnored ? "Show version updates" : "Ignore version updates"}
           </MenuItem>
           {mcpUrl ? (
             <MenuItem onClick={() => copyMcpUrl(mcpUrl, { url: mcpUrl })}>Copy MCP URL</MenuItem>
@@ -2103,6 +2117,7 @@ export function ConnectionsSettings() {
     [savedEnvironments],
   );
   const savedServerUpdateStates = useAtomValue(savedServerUpdateStatesAtom);
+  const [ignoredVersionUpdates] = useIgnoredVersionUpdateEnvironments();
   const savedServerUpdateTargets = useMemo(
     () =>
       savedServerUpdateStates.flatMap(({ environment, updateStatus }): ServerUpdateTarget[] => {
@@ -2111,6 +2126,7 @@ export function ConnectionsSettings() {
         const desktopAppUpdate = supportsDesktopAppUpdate(environment.serverConfig);
         if (
           !mismatch ||
+          ignoredVersionUpdates.includes(environment.environmentId) ||
           updateStatus === "running" ||
           !environment.entry.enabled ||
           environment.connection.phase !== "connected" ||
@@ -2135,7 +2151,7 @@ export function ConnectionsSettings() {
           },
         ];
       }),
-    [savedServerUpdateStates],
+    [savedServerUpdateStates, ignoredVersionUpdates],
   );
   // Switched-off machines never receive threads, so they stay out of the
   // load balancing and GitHub sharing lists. The WSL backend has no row in
