@@ -16,6 +16,7 @@ import {
   shouldShowArm64IntelBuildWarning,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
+import { RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 
 const baseState: DesktopUpdateState = {
   enabled: true,
@@ -203,8 +204,8 @@ describe("getDesktopUpdateActionError", () => {
 
 describe("desktop update UI helpers", () => {
   it("builds the stable release URL for a downloaded version", () => {
-    expect(getDesktopUpdateReleaseUrl("0.0.30", "pingdotgg/t3code")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30",
+    expect(getDesktopUpdateReleaseUrl("0.0.30")).toBe(
+      `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v0.0.30`,
     );
   });
 
@@ -223,18 +224,18 @@ describe("desktop update UI helpers", () => {
     "owner/repo#notes",
     "owner?tab=notes/repo",
     "owner/repo?tab=notes",
-  ])("falls back to upstream for an invalid configured repository: %s", (repository) => {
+  ])("falls back to this fork for an invalid configured repository: %s", (repository) => {
     expect(getDesktopUpdateReleaseHistoryUrl(repository)).toBe(
-      "https://github.com/pingdotgg/t3code/releases",
+      `https://github.com/${RELEASE_REPOSITORY}/releases`,
     );
     expect(getDesktopUpdateReleaseUrl("1.2.3", repository)).toBe(
-      "https://github.com/pingdotgg/t3code/releases/tag/v1.2.3",
+      `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v1.2.3`,
     );
   });
 
   it("builds the nightly release URL without dropping its version suffix", () => {
-    expect(getDesktopUpdateReleaseUrl("0.0.30-nightly.20260728.931", "pingdotgg/t3code")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30-nightly.20260728.931",
+    expect(getDesktopUpdateReleaseUrl("0.0.30-nightly.20260728.931")).toBe(
+      `https://github.com/${RELEASE_REPOSITORY}/releases/tag/v0.0.30-nightly.20260728.931`,
     );
   });
 
@@ -244,8 +245,8 @@ describe("desktop update UI helpers", () => {
   });
 
   it("builds the release history URL", () => {
-    expect(getDesktopUpdateReleaseHistoryUrl("pingdotgg/t3code")).toBe(
-      "https://github.com/pingdotgg/t3code/releases",
+    expect(getDesktopUpdateReleaseHistoryUrl()).toBe(
+      `https://github.com/${RELEASE_REPOSITORY}/releases`,
     );
   });
 
