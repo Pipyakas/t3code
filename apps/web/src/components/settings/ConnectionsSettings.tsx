@@ -82,6 +82,7 @@ import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
+  useIgnoredVersionUpdateEnvironments,
 } from "~/versionSkew";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { RemoveT3ConnectEnvironmentDialog } from "../clerk/RemoveT3ConnectEnvironmentDialog";
@@ -243,6 +244,7 @@ function ConnectionsSettingsContent({
   readonly accessEnvironmentId: EnvironmentId | null;
   readonly accessEnvironmentPicker?: ReactNode;
 }) {
+  const [ignoredVersionUpdates] = useIgnoredVersionUpdateEnvironments();
   const desktopBridge = window.desktopBridge;
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
@@ -283,6 +285,7 @@ function ConnectionsSettingsContent({
       const desktopAppUpdate = supportsDesktopAppUpdate(environment.serverConfig);
       if (
         !mismatch ||
+        ignoredVersionUpdates.includes(environment.environmentId) ||
         updateStatus === "running" ||
         !environment.entry.enabled ||
         environment.connection.phase !== "connected" ||
