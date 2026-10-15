@@ -90,6 +90,7 @@ function makeRegistry(input: {
   }>;
   readonly discovery?: ReadonlyArray<SourceControlProviderDiscoverySpec>;
   readonly run?: SourceControlHost.SourceControlHost["Service"]["process"]["run"];
+  /** Supplied so a test can write the settings the registry it builds reads. */
   readonly settings?: Partial<ServerSettings.ServerSettingsService["Service"]>;
 }) {
   const driver = {
@@ -107,6 +108,15 @@ function makeRegistry(input: {
         },
       }),
   } satisfies Partial<VcsDriver.VcsDriver["Service"]>;
+
+  // Methods a test leaves out fall back to the test defaults, since every lookup reads Settings.
+  const settingsLayer = Layer.effect(
+    ServerSettings.ServerSettingsService,
+    Effect.map(ServerSettings.ServerSettingsService, (defaults) => ({
+      ...defaults,
+      ...input.settings,
+    })),
+  ).pipe(Layer.provide(ServerSettings.ServerSettingsService.layerTest()));
 
   const discovery = input.discovery ?? [claimingCli("gitlab")];
   return SourceControlProviderRegistry.makeWithProviders(
@@ -151,9 +161,7 @@ function makeRegistry(input: {
             run: input.run ?? (() => Effect.succeed(TestSourceControlHost.processOutput(""))),
           },
         }),
-        input.settings
-          ? Layer.mock(ServerSettings.ServerSettingsService)(input.settings)
-          : ServerSettings.ServerSettingsService.layerTest(),
+        settingsLayer,
         ServerConfig.layerTest(process.cwd(), {
           prefix: "t3-source-control-registry-test-",
         }).pipe(Layer.provide(NodeServices.layer)),
@@ -302,6 +310,59 @@ it.effect("does not refine a context whose server address is empty", () =>
       "https://githubenterprise.dev.example.com",
     );
     assert.strictEqual(asked, 2);
+  }),
+);
+
+const forgejoSettings = (sourceControlHosts: Record<string, Record<string, unknown>>) =>
+  ServerSettings.ServerSettingsService.pipe(
+    Effect.provide(ServerSettings.ServerSettingsService.layerTest({ sourceControlHosts })),
+  );
+
+it.effect("gives a host switched off in Settings the unsupported provider", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [],
+      settings: yield* forgejoSettings({ forgejo: { enabled: false } }),
+    });
+
+    const provider = yield* registry.get(SourceControlProviderKind.make("forgejo"));
+
+    assert.notStrictEqual(provider, PROVIDERS[2]);
+    const error = yield* provider.getDefaultBranch({ cwd: "/repo" }).pipe(Effect.flip);
+    assert.strictEqual(error.provider, "forgejo");
+    assert.strictEqual(error.detail, "No forgejo source control provider is registered.");
+  }),
+);
+
+it.effect("gives a host switched on in Settings its real provider", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [],
+      settings: yield* forgejoSettings({ forgejo: { enabled: true } }),
+    });
+
+    const provider = yield* registry.get(SourceControlProviderKind.make("forgejo"));
+
+    assert.strictEqual(provider, PROVIDERS[2]);
+  }),
+);
+
+it.effect("answers with the host a Settings switch turns on, without a restart", () =>
+  Effect.gen(function* () {
+    const settings = yield* forgejoSettings({ forgejo: { baseUrl: "https://codeberg.org" } });
+    const registry = yield* makeRegistry({ remotes: [], settings });
+    const forgejo = SourceControlProviderKind.make("forgejo");
+
+    assert.notStrictEqual(yield* registry.get(forgejo), PROVIDERS[2]);
+
+    // Only the flag travels; the host's saved baseUrl stays, since the server merges per host.
+    yield* settings.updateSettings({ sourceControlHosts: { forgejo: { enabled: true } } });
+
+    assert.strictEqual(yield* registry.get(forgejo), PROVIDERS[2]);
+    assert.strictEqual(
+      (yield* settings.getSettings).sourceControlHosts.forgejo?.["baseUrl"],
+      "https://codeberg.org",
+    );
   }),
 );
 
