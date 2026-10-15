@@ -210,6 +210,9 @@ function panel(options?: {
 
 // The section header and the end of the provider list both offer Add provider.
 
+const deleteButton = (id: string) =>
+  page.getByRole("button", { name: `Delete instance ${id}`, exact: true });
+
 async function setup() {
   await page.viewport(1280, 900);
   state.settings = DEFAULT_UNIFIED_SETTINGS;
@@ -350,4 +353,31 @@ describe("EnvironmentProviderSettings routing", () => {
     await screen.rerender(panel());
     expect(rowNames()).toEqual(["Select Work", "Select OpenCode", "Select Claude", "Select Codex"]);
   });
+
+  it.each([
+    ["grok", true],
+    ["cursor", true],
+    ["antigravity", false],
+    ["opencode", false],
+    ["claudeAgent", false],
+  ])(
+    "offers removing the switched-off %s built-in only for Grok and Cursor",
+    async (driver, removable) => {
+      await setup();
+      const instanceId = ProviderInstanceId.make(driver);
+      state.settings = {
+        ...DEFAULT_UNIFIED_SETTINGS,
+        providerInstances: {
+          [instanceId]: { driver: ProviderDriverKind.make(driver), enabled: false },
+        },
+      };
+      await setProviders([provider()]);
+      await using _screen = await render(panel({ targetInstanceId: instanceId }));
+      if (removable) {
+        await expect.element(deleteButton(instanceId)).toBeVisible();
+      } else {
+        await expect.element(deleteButton(instanceId)).not.toBeInTheDocument();
+      }
+    },
+  );
 });
