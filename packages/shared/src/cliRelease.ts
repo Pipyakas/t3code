@@ -1,4 +1,17 @@
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+/**
+ * Naming shared by the release workflow, the runtime installers, and
+ * install scripts for the per-platform CLI archives attached to GitHub
+ * Releases. Every consumer derives the same file names from a version and a
+ * platform key, so a rename here is a release-breaking change.
+ */
+
+/**
+ * Where this fork's builds publish: desktop updates, the release history link, and the CLI
+ * archives that runtimes download.
+ */
+export const RELEASE_REPOSITORY = "Pipyakas/t3code";
+
+const CLI_RELEASE_REPOSITORY = RELEASE_REPOSITORY;
 export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -36,7 +49,7 @@ export function cliArchiveFileName(version: string, platformKey: CliArchivePlatf
   return `t3-${version}-${platformKey}.${platformKey.startsWith("win32") ? "zip" : "tar.gz"}`;
 }
 
-const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
+const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${RELEASE_REPOSITORY}/releases/download`;
 
 export function cliReleaseDownloadBaseUrl(
   version: string,
@@ -70,7 +83,7 @@ export function cliReleaseChannelOf(version: string): CliReleaseChannel {
 
 /** Page until the channel matches; nightlies can push preview/stable releases past the first page. */
 export function cliReleaseIndexPageUrl(page: number): string {
-  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
+  return `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
 }
 
 /** Draft assets are not downloadable. */
