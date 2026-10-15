@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
-import { Command } from "effect/cli";
+import * as Option from "effect/Option";
+import { Command, Flag } from "effect/cli";
 
 import { main as runServiceLauncher } from "../serviceLauncher.ts";
 
@@ -12,12 +13,22 @@ import { main as runServiceLauncher } from "../serviceLauncher.ts";
  * stopping its child before the process exits, so it runs detached from the
  * CLI's fiber rather than under `runMain`, whose signal handler would
  * interrupt the fiber and exit while the child is still being terminated.
+ *
+ * systemd and launchd pass the home in `T3CODE_HOME` and capture output
+ * themselves; a Windows scheduled task can do neither, so it passes both as
+ * flags.
  */
-export const serviceLauncherCommand = Command.make("__service-launcher").pipe(
+export const serviceLauncherCommand = Command.make("__service-launcher", {
+  t3Home: Flag.String("t3-home").pipe(Flag.optional),
+  logFile: Flag.String("log-file").pipe(Flag.optional),
+}).pipe(
   Command.unlisted,
-  Command.withHandler(() =>
+  Command.withHandler(({ t3Home, logFile }) =>
     Effect.sync(() => {
-      runServiceLauncher().catch((cause: unknown) => {
+      runServiceLauncher({
+        baseDir: Option.getOrUndefined(t3Home),
+        logFile: Option.getOrUndefined(logFile),
+      }).catch((cause: unknown) => {
         const error = cause instanceof Error ? cause : new Error(String(cause));
         process.stderr.write(`[service-launcher] ${error.message}\n`);
         process.exitCode = 1;
