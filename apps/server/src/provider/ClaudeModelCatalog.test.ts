@@ -281,9 +281,10 @@ describe("Claude model catalog", () => {
       resolveClaudeCatalogEffort(catalog, "anthropic/claude-gateway", "max"),
       "max",
     );
+    // With nothing chosen, a discovered model runs at its highest declared level.
     assert.strictEqual(
       resolveClaudeCatalogEffort(catalog, "anthropic/claude-gateway", undefined),
-      "high",
+      "max",
     );
     assert.strictEqual(
       resolveClaudeCatalogApiModelId(catalog, {
