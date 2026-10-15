@@ -68,8 +68,9 @@ function makeRegistry(input: {
   readonly githubApi?: Partial<GitHubRest.GitHubRest["Service"]>;
   readonly gitlab?: Partial<GitLabCli.GitLabCli["Service"]>;
   readonly forgejo?: Partial<ForgejoCli.ForgejoCli["Service"]>;
-  readonly settings?: Partial<ServerSettings.ServerSettingsService["Service"]>;
   readonly resolve?: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"];
+  /** Supplied so a test can write the settings the registry it builds reads. */
+  readonly settings?: Partial<ServerSettings.ServerSettingsService["Service"]>;
 }) {
   const driver = {
     listRemotes: () =>
@@ -86,6 +87,15 @@ function makeRegistry(input: {
         },
       }),
   } satisfies Partial<VcsDriver.VcsDriver["Service"]>;
+
+  // Methods a test leaves out fall back to the test defaults, since every lookup reads Settings.
+  const settingsLayer = Layer.effect(
+    ServerSettings.ServerSettingsService,
+    Effect.map(ServerSettings.ServerSettingsService, (defaults) => ({
+      ...defaults,
+      ...input.settings,
+    })),
+  ).pipe(Layer.provide(ServerSettings.ServerSettingsService.layerTest()));
 
   const layerRegistry = Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
     get: () => Effect.succeed(driver as unknown as VcsDriver.VcsDriver["Service"]),
@@ -124,7 +134,7 @@ function makeRegistry(input: {
             Layer.mergeAll(
               layerProcess,
               layerRegistry,
-              ServerSettings.ServerSettingsService.layerTest(),
+              settingsLayer,
               Layer.mock(GitVcsDriver.GitVcsDriver)({}),
             ),
           ),
@@ -133,9 +143,7 @@ function makeRegistry(input: {
         Layer.mock(AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli)({}),
         Layer.mock(BitbucketApi.BitbucketApi)({}),
         Layer.mock(BitbucketPullRequestApi.BitbucketPullRequestApi)({}),
-        input.settings
-          ? Layer.mock(ServerSettings.ServerSettingsService)(input.settings)
-          : ServerSettings.ServerSettingsService.layerTest(),
+        settingsLayer,
         Layer.mock(GitHubPullRequestApi.GitHubPullRequestApi)({}),
         // The GitHub provider's GraphQL reads go through these; no test here makes one.
         Layer.mock(GitHubRequestPolicy.GitHubRequestPolicy)({}),
@@ -496,6 +504,60 @@ it.effect("skips GitHub discovery for the identity resolver's empty base URL", (
       "https://githubenterprise.dev.example.com",
     );
     assert.deepStrictEqual(hosts, ["githubenterprise.dev.example.com"]);
+  }),
+);
+
+const forgejoSettings = (sourceControlHosts: Record<string, Record<string, unknown>>) =>
+  ServerSettings.ServerSettingsService.pipe(
+    Effect.provide(ServerSettings.ServerSettingsService.layerTest({ sourceControlHosts })),
+  );
+
+it.effect("gives a host switched off in Settings the unsupported provider", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [],
+      settings: yield* forgejoSettings({ forgejo: { enabled: false } }),
+    });
+
+    const provider = yield* registry.get(SourceControlProviderKind.make("forgejo"));
+
+    // The real Forgejo provider refines repository identities; the stand-in never does.
+    assert.isUndefined(provider.refineRepositoryIdentity);
+    const error = yield* provider.getDefaultBranch({ cwd: "/repo" }).pipe(Effect.flip);
+    assert.strictEqual(error.provider, "forgejo");
+    assert.strictEqual(error.detail, "No forgejo source control provider is registered.");
+  }),
+);
+
+it.effect("gives a host switched on in Settings its real provider", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [],
+      settings: yield* forgejoSettings({ forgejo: { enabled: true } }),
+    });
+
+    const provider = yield* registry.get(SourceControlProviderKind.make("forgejo"));
+
+    assert.isFunction(provider.refineRepositoryIdentity);
+  }),
+);
+
+it.effect("answers with the host a Settings switch turns on, without a restart", () =>
+  Effect.gen(function* () {
+    const settings = yield* forgejoSettings({ forgejo: { baseUrl: "https://codeberg.org" } });
+    const registry = yield* makeRegistry({ remotes: [], settings });
+    const forgejo = SourceControlProviderKind.make("forgejo");
+
+    assert.isUndefined((yield* registry.get(forgejo)).refineRepositoryIdentity);
+
+    // Only the flag travels; the host's saved baseUrl stays, since the server merges per host.
+    yield* settings.updateSettings({ sourceControlHosts: { forgejo: { enabled: true } } });
+
+    assert.isFunction((yield* registry.get(forgejo)).refineRepositoryIdentity);
+    assert.strictEqual(
+      (yield* settings.getSettings).sourceControlHosts.forgejo?.["baseUrl"],
+      "https://codeberg.org",
+    );
   }),
 );
 
