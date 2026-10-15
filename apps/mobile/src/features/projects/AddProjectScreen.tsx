@@ -651,7 +651,10 @@ export function AddProjectSourceScreen() {
                 )
               }
             />
-            {(["url", ...sortAddProjectProviderSources(readiness)] as AddProjectRemoteSource[]).map(
+            {([
+              "url",
+              ...sortAddProjectProviderSources(readiness, discoveryState.data),
+            ] as AddProjectRemoteSource[]).map(
               (candidate) => (
                 <SourceControlRow
                   key={candidate}

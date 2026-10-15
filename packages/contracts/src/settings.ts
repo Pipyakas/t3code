@@ -851,6 +851,32 @@ export const GitHubHost = TrimmedNonEmptyString.pipe(
 export const SourceControlHostSettings = Schema.Record(Schema.String, Schema.Unknown);
 export type SourceControlHostSettings = typeof SourceControlHostSettings.Type;
 
+/**
+ * The hosts a fresh environment talks to. Every other host this build ships is off until
+ * Settings turns it on, so an environment only reaches for the hosts its owner asked for.
+ */
+const DEFAULT_ENABLED_SOURCE_CONTROL_HOSTS: ReadonlySet<string> = new Set(["github", "gitlab"]);
+
+/**
+ * Whether a source control host is switched on for an environment. The host's `enabled` field
+ * in `sourceControlHosts[kind]` decides; a host that has never been set takes its default.
+ *
+ * Every surface reads this: the server's provider registries hand a disabled host the same
+ * unsupported provider an unregistered one gets, and the clients leave it out of their host
+ * pickers. A non-boolean `enabled` is a blob this build cannot read a flag out of, so it falls
+ * back to the default rather than guessing off.
+ */
+export function isSourceControlHostEnabled(
+  kind: string,
+  sourceControlHosts: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined,
+): boolean {
+  const configured = sourceControlHosts?.[kind]?.enabled;
+  if (typeof configured === "boolean") {
+    return configured;
+  }
+  return DEFAULT_ENABLED_SOURCE_CONTROL_HOSTS.has(kind);
+}
+
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
