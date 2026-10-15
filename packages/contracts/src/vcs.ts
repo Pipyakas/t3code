@@ -1,6 +1,8 @@
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
+// Discovery skips Jujutsu, which has no driver. "jj" stays decodable so discovery results
+// from upstream servers, which still report Jujutsu, keep working over LAN.
 export const VcsDriverKind = Schema.Literals(["git", "jj", "unknown"]);
 export type VcsDriverKind = typeof VcsDriverKind.Type;
 

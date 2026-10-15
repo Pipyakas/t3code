@@ -165,12 +165,10 @@ it.effect("reports every hosting integration in registry order with its sign-in"
         },
       ],
     );
+    // This fork's discovery lists Git only.
     assert.deepStrictEqual(
       result.versionControlSystems.map((item) => [item.kind, item.status]),
-      [
-        ["git", "available"],
-        ["jj", "available"],
-      ],
+      [["git", "available"]],
     );
   }).pipe(Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery())))),
 );
@@ -292,19 +290,20 @@ it.live.skipIf(HostProcess.Platform.defaultValue() === "win32")(
       );
 
       // The user installs a tool after launch; their login shell now finds it.
-      yield* fs.writeFileString(path.join(fakebin, "jj"), "#!/bin/sh\necho 'jj 0.99.0-test'\n", {
+      // This fork discovers Git only, so a newer git stands in for the new tool.
+      yield* fs.writeFileString(path.join(fakebin, "git"), "#!/bin/sh\necho 'git 0.99.0-test'\n", {
         mode: 0o755,
       });
       yield* fs.writeFileString(path.join(home, ".profile"), 'export PATH="$HOME/fakebin:$PATH"\n');
 
       const discovery = yield* SourceControlDiscovery.SourceControlDiscovery;
-      const jj = (yield* discovery.discover).versionControlSystems.find(
-        (item) => item.kind === "jj",
+      const git = (yield* discovery.discover).versionControlSystems.find(
+        (item) => item.kind === "git",
       );
 
       assert.deepStrictEqual(
-        { status: jj?.status, version: jj?.version },
-        { status: "available", version: Option.some("jj 0.99.0-test") },
+        { status: git?.status, version: git?.version },
+        { status: "available", version: Option.some("git 0.99.0-test") },
       );
     }).pipe(
       Effect.scoped,
