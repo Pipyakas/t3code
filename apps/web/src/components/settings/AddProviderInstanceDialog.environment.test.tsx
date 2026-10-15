@@ -116,8 +116,21 @@ function button(dialog: unknown, label: string) {
   return element;
 }
 
+function selectDriver(dialog: unknown, driverKind: string) {
+  const group = visitElements(
+    dialog,
+    (entry) => entry.props["aria-labelledby"] === "add-instance-driver-label",
+  );
+  if (!group) throw new Error("Missing provider radio group.");
+  (group.props.onValueChange as (value: string) => void)(driverKind);
+}
+
 function prepareInstance() {
   let dialog = renderDialog();
+  // Codex renders its ChatGPT sign-in branch; pick it explicitly so these
+  // grant tests do not move when the dialog's default driver changes.
+  selectDriver(dialog, "codex");
+  dialog = renderDialog();
   (button(dialog, "Configure manually").props.onClick as () => void)();
   dialog = renderDialog();
   const label = visitElements(dialog, (entry) => entry.props.placeholder === "e.g. Work");
@@ -169,6 +182,8 @@ describe("AddProviderInstanceDialog environment routing", () => {
       },
     });
     let tree = render();
+    selectDriver(tree, "codex");
+    tree = render();
     // Codex offers ChatGPT sign-in first; manual setup keeps the existing CLI flow.
     (findByChildren(tree, "Configure manually").props.onClick as () => void)();
     tree = render();
