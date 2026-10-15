@@ -648,6 +648,7 @@ it.effect(
             },
             {},
             yield* ServerBrowser.ServerBrowser,
+            false,
           ).pipe(Layer.provide(configRpcServices)),
         ),
       );
@@ -815,6 +816,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
           },
           {},
           yield* ServerBrowser.ServerBrowser,
+          false,
         ).pipe(Layer.provide(configRpcServices)),
       ),
     );
