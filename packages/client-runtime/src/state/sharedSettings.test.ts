@@ -19,6 +19,13 @@ const primaryId = EnvironmentId.make("env-primary");
 const laptopId = EnvironmentId.make("env-laptop");
 const boxId = EnvironmentId.make("env-box");
 const restartCapabilities = { threadRestartContinuation: true };
+// Codex starts off in this fork; these cases share a Codex text generation model.
+const CODEX_ENABLED_SETTINGS = {
+  ...DEFAULT_SERVER_SETTINGS,
+  providerInstances: {
+    [ProviderInstanceId.make("codex")]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+  },
+};
 
 describe("supportsSharedSettingsSync", () => {
   it("accepts only connected servers that advertise the shared-settings capability", () => {
@@ -70,19 +77,19 @@ describe("splitSharedServerPatch", () => {
   ])("shares the text generation model and options, including reset (%j)", (selection) => {
     const patch = { textGenerationModelSelection: selection };
     expect(splitSharedServerPatch(patch)).toEqual({ sharedPatch: patch, localPatch: {} });
-    expect(pickSharedServerSettings({ ...DEFAULT_SERVER_SETTINGS, ...patch })).toMatchObject(patch);
+    expect(pickSharedServerSettings({ ...CODEX_ENABLED_SETTINGS, ...patch })).toMatchObject(patch);
     const environment = {
       environmentId: boxId,
       label: "Remote Box",
       syncEligible: true,
       settings: {
-        ...DEFAULT_SERVER_SETTINGS,
+        ...CODEX_ENABLED_SETTINGS,
         textGenerationModelSelection: { ...selection, model: "different-model" },
       },
     };
     const input = {
       primaryEnvironmentId: primaryId,
-      primarySettings: { ...DEFAULT_SERVER_SETTINGS, ...patch },
+      primarySettings: { ...CODEX_ENABLED_SETTINGS, ...patch },
       environments: [environment],
     };
     expect(findSharedSettingsMismatches(input)).toEqual([
@@ -121,7 +128,7 @@ describe("splitSharedServerPatch", () => {
 describe("pickSharedServerSettings", () => {
   it("returns only the shared keys", () => {
     expect(
-      Object.keys(pickSharedServerSettings(DEFAULT_SERVER_SETTINGS, restartCapabilities)).sort(),
+      Object.keys(pickSharedServerSettings(CODEX_ENABLED_SETTINGS, restartCapabilities)).sort(),
     ).toEqual([
       "autoResumeLimitedThreads",
       "continueThreadsAfterServerUpdate",
