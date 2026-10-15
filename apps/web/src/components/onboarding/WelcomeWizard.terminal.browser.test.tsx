@@ -175,10 +175,10 @@ const missingClaude: ServerProvider = {
   slashCommands: [],
   skills: [],
 };
-const signedOutCodex: ServerProvider = {
+const signedOutOpenCode: ServerProvider = {
   ...missingClaude,
-  instanceId: ProviderInstanceId.make("codex-work"),
-  driver: ProviderDriverKind.make("codex"),
+  instanceId: ProviderInstanceId.make("opencode-work"),
+  driver: ProviderDriverKind.make("opencode"),
   installed: true,
   auth: { status: "unauthenticated" },
 };
@@ -247,7 +247,7 @@ function setup() {
     );
     state.providers.set(
       id,
-      Atom.make<ReadonlyArray<ServerProvider>>([missingClaude, signedOutCodex]).pipe(
+      Atom.make<ReadonlyArray<ServerProvider>>([missingClaude, signedOutOpenCode]).pipe(
         Atom.keepAlive,
       ),
     );
@@ -258,9 +258,9 @@ function setup() {
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
           providerInstances: {
-            [signedOutCodex.instanceId]: {
-              driver: signedOutCodex.driver,
-              config: { binaryPath: "/opt/codex-work", setupMode: "existing" },
+            [signedOutOpenCode.instanceId]: {
+              driver: signedOutOpenCode.driver,
+              config: { binaryPath: "/opt/opencode-work" },
             },
           },
         },
@@ -357,7 +357,7 @@ describe("welcome agent terminal setup", () => {
         threadId: "onboarding-agent-setup",
         terminalId: expect.any(String),
         cwd: "/fixtures/paired-remote",
-        providerInstanceId: signedOutCodex.instanceId,
+        providerInstanceId: signedOutOpenCode.instanceId,
       },
     });
     expect(state.write).toHaveBeenCalledExactlyOnceWith({
@@ -365,7 +365,7 @@ describe("welcome agent terminal setup", () => {
       input: {
         threadId: "onboarding-agent-setup",
         terminalId: state.open.mock.calls[0]![0].input.terminalId,
-        data: "/opt/codex-work login",
+        data: "/opt/opencode-work auth login",
       },
     });
     expect(pageText()).toContain("Review the command, then press Enter to run it.");
