@@ -1129,6 +1129,7 @@ import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
+  orderProviderInstanceEntries,
   sortProviderInstanceEntries,
   type ProviderInstanceEntry,
 } from "../../providerInstances";
@@ -2208,12 +2209,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // sorted default-first per driver kind for a stable picker order.
   const providerInstanceEntries = useMemo<ReadonlyArray<ProviderInstanceEntry>>(
     () =>
-      sortProviderInstanceEntries(
-        applyProviderInstanceSettings(
-          deriveProviderInstanceEntries(providerStatuses),
-          settings,
-          activeProjectId,
+      orderProviderInstanceEntries(
+        sortProviderInstanceEntries(
+          applyProviderInstanceSettings(
+            deriveProviderInstanceEntries(providerStatuses),
+            settings,
+            activeProjectId,
+          ),
         ),
+        settings.providerOrder ?? [],
       ),
     [providerStatuses, settings, activeProjectId],
   );
