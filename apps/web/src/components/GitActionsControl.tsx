@@ -207,6 +207,14 @@ function getPublishProviderReadiness(input: {
       hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
     };
   }
+  // The server answers for this environment, so a host Settings has switched off is not
+  // offered here. A server that predates the setting says nothing, which reads as on.
+  if (discovered.enabled === false) {
+    return {
+      ready: false,
+      hint: `${discovered.label} is turned off. Turn it on in Settings -> Source Control.`,
+    };
+  }
   if (discovered.status !== "available") {
     return { ready: false, hint: discovered.installHint };
   }
@@ -492,6 +500,15 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     publishAccountByProvider.set(provider.kind, Option.getOrNull(provider.auth.account));
   }
   const publishSourceControlProviders = sourceControlDiscovery.data?.sourceControlProviders ?? [];
+  /** Hosts this environment has switched on, or null before discovery has answered. */
+  const enabledPublishProviders =
+    sourceControlDiscovery.data?.sourceControlProviders === undefined
+      ? null
+      : new Set(
+          publishSourceControlProviders
+            .filter((provider) => provider.enabled !== false)
+            .map((provider) => provider.kind),
+        );
   const publishReadinessByProvider = new Map(
     PUBLISH_PROVIDER_OPTIONS.map((option) => [
       option.value,
@@ -506,7 +523,9 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
   const hasReadyPublishProvider = PUBLISH_PROVIDER_OPTIONS.some(
     (option) => publishProviderReadiness(option.value).ready,
   );
-  const sortedPublishProviderOptions = PUBLISH_PROVIDER_OPTIONS.toSorted((left, right) => {
+  const sortedPublishProviderOptions = PUBLISH_PROVIDER_OPTIONS.filter(
+    (option) => enabledPublishProviders === null || enabledPublishProviders.has(option.value),
+  ).toSorted((left, right) => {
     const leftReady = publishProviderReadiness(left.value).ready;
     const rightReady = publishProviderReadiness(right.value).ready;
     if (leftReady !== rightReady) {
