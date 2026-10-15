@@ -6,6 +6,7 @@ import * as CodexManagedTokenBroker from "./CodexManagedTokenBroker.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import { describe, it, assert, expect } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -175,6 +176,7 @@ type TestClaudeCapabilities = {
   readonly apiKeySource: string | undefined;
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  readonly models?: ReadonlyArray<ModelInfo>;
 };
 
 function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
@@ -888,6 +890,79 @@ it.layer(
           { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
         ],
       );
+    });
+
+    describe("Claude gateway-discovered models", () => {
+      const builtIn = {
+        slug: "claude-opus-5-5",
+        name: "Claude Opus 5.5",
+        isCustom: false,
+        capabilities: null,
+      } as const;
+      const kept = {
+        slug: "anthropic-big-pickle",
+        name: "Big Pickle",
+        isCustom: false,
+        capabilities: null,
+      } as const;
+      const retired = {
+        slug: "anthropic-muse-spark-1.3-contributor-free",
+        name: "Muse Spark 1.3",
+        isCustom: false,
+        capabilities: null,
+      } as const;
+      const previousProvider = {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        driver: ProviderDriverKind.make("claudeAgent"),
+        status: "ready",
+        enabled: true,
+        installed: true,
+        auth: { status: "authenticated" },
+        checkedAt: "2026-10-17T00:00:00.000Z",
+        version: "2.3.0",
+        models: [builtIn, kept, retired],
+        slashCommands: [],
+        skills: [],
+      } as const satisfies ServerProvider;
+      const refreshedProvider = {
+        ...previousProvider,
+        checkedAt: "2026-10-17T00:01:00.000Z",
+        models: [builtIn, kept],
+      } satisfies ServerProvider;
+
+      it("drops models the gateway retired once Claude Code's initialization answers", () => {
+        assert.deepStrictEqual(
+          ProviderRegistry.mergeProviderSnapshot(previousProvider, refreshedProvider).models,
+          [builtIn, kept],
+        );
+      });
+
+      it("keeps discovered models while the probe is pending or failed", () => {
+        // A probe that never reached initialization only knows the catalog.
+        const unprobed = [
+          {
+            ...refreshedProvider,
+            status: "warning",
+            auth: { status: "unknown" },
+            models: [builtIn],
+          },
+          {
+            ...refreshedProvider,
+            status: "warning",
+            installed: false,
+            auth: { status: "unknown" },
+            models: [builtIn],
+          },
+          { ...refreshedProvider, status: "error", auth: { status: "unknown" }, models: [builtIn] },
+        ] satisfies ReadonlyArray<ServerProvider>;
+
+        for (const provider of unprobed) {
+          assert.deepStrictEqual(
+            ProviderRegistry.mergeProviderSnapshot(previousProvider, provider).models,
+            [builtIn, kept, retired],
+          );
+        }
+      });
     });
 
     it("drops Grok models a completed probe no longer advertises", () => {
@@ -3278,6 +3353,77 @@ it.layer(
         );
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.auth.status, "authenticated");
+      }).pipe(
+        Effect.provide(
+          layerMockSpawner((args) => {
+            const joined = args.join(" ");
+            if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
+            throw new Error(`Unexpected args: ${joined}`);
+          }),
+        ),
+      ),
+    );
+
+    it.effect("adds models Claude Code reports that the catalog does not know", () =>
+      Effect.gen(function* () {
+        const status = yield* checkClaudeProviderStatus(
+          {
+            ...defaultClaudeSettings,
+            customModels: [
+              { slug: "my-custom", name: "My Custom" },
+              { slug: "gateway/kimi-3", name: "Kimi (mine)" },
+            ],
+          },
+          claudeCapabilities({
+            models: [
+              { value: "default", displayName: "Default", description: "" },
+              {
+                value: "opus[1m]",
+                resolvedModel: "claude-opus-5[1m]",
+                displayName: "Opus",
+                description: "",
+              },
+              { value: "sonnet", displayName: "Sonnet", description: "" },
+              { value: "gateway/glm-5", displayName: "GLM 5", description: "" },
+              {
+                value: "gateway/claude-relay",
+                displayName: "Claude Relay",
+                description: "",
+                supportsEffort: true,
+                supportedEffortLevels: ["low", "high"],
+              },
+              { value: "gateway/kimi-3", displayName: "Kimi 3", description: "" },
+            ],
+          }),
+        );
+        const reported = status.models.filter(
+          (model) => !model.isCustom && !model.slug.startsWith("claude-"),
+        );
+        assert.deepStrictEqual(
+          reported.map((model) => [model.slug, model.name]),
+          [
+            ["gateway/glm-5", "GLM 5"],
+            ["gateway/claude-relay", "Claude Relay"],
+          ],
+        );
+        assert.deepStrictEqual(reported[0]?.capabilities, { optionDescriptors: [] });
+        assert.deepStrictEqual(reported[1]?.capabilities, {
+          optionDescriptors: [
+            {
+              id: "effort",
+              label: "Reasoning",
+              type: "select",
+              options: [
+                { id: "low", label: "Low" },
+                { id: "high", label: "High", isDefault: true },
+              ],
+            },
+          ],
+        });
+        assert.deepStrictEqual(
+          status.models.filter((model) => model.isCustom).map((model) => model.name),
+          ["My Custom", "Kimi (mine)"],
+        );
       }).pipe(
         Effect.provide(
           layerMockSpawner((args) => {

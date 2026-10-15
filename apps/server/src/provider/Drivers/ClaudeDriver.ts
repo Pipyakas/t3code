@@ -1,3 +1,4 @@
+import type { ModelInfo as ClaudeModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeSettings, ProviderDriverKind } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
@@ -35,7 +36,13 @@ import {
 } from "../ClaudeProvider.ts";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
-import { resolveClaudeModelCatalog } from "../ClaudeModelCatalog.ts";
+import { resolveClaudeModelCatalog, withClaudeReportedModels } from "../ClaudeModelCatalog.ts";
+import {
+  fetchClaudeGatewayEffortLevels,
+  readClaudeSettingsEnv,
+  resolveClaudeGatewayConnection,
+  withClaudeGatewayEffortLevels,
+} from "../claudeGatewayModels.ts";
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
@@ -145,6 +152,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       continuationGroupKey,
     });
 
+    // Models from the last successful capabilities probe, so sessions can
+    // resolve options for gateway-discovered models the manifest lacks.
+    const reportedModels = yield* Ref.make<ReadonlyArray<ClaudeModelInfo>>([]);
+    const sessionModelCatalog = Effect.all([modelCatalog, Ref.get(reportedModels)]).pipe(
+      Effect.map(([catalog, models]) =>
+        withClaudeReportedModels(catalog, effectiveConfig.customModels, models),
+      ),
+    );
+
     const scopedLimitNames = yield* makeClaudeScopedLimitNames;
     const orchestrationAdapter = yield* createClaudeAdapterV2(
       {
@@ -155,7 +171,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
         enabled,
         config,
       },
-      { scopedLimitNames, onUsageLimits: (update) => snapshot.applyUsageLimits(update) },
+      {
+        scopedLimitNames,
+        modelCatalog: sessionModelCatalog,
+        onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+      },
     ).pipe(
       Effect.mapError(
         (cause) =>
@@ -170,8 +190,27 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     const textGeneration = yield* makeClaudeTextGeneration(
       effectiveConfig,
       processEnv,
-      modelCatalog,
+      sessionModelCatalog,
     );
+
+    // Claude Code reports one generic effort ladder for every gateway model,
+    // so ask the gateway for each model's own ladder and use that instead.
+    const withGatewayEffortLevels = Effect.fn("withGatewayEffortLevels")(function* (
+      models: ReadonlyArray<ClaudeModelInfo>,
+    ): Effect.fn.Return<ReadonlyArray<ClaudeModelInfo>, never, FileSystem.FileSystem | Path.Path> {
+      if (models.length === 0) return models;
+      const settingsEnv = yield* readClaudeSettingsEnv(configDir);
+      const connection = resolveClaudeGatewayConnection(processEnv, settingsEnv);
+      if (!connection) return models;
+      return yield* fetchClaudeGatewayEffortLevels(connection).pipe(
+        Effect.map((levels) => withClaudeGatewayEffortLevels(models, levels)),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.tapCause((cause) =>
+          Effect.logWarning("Could not read effort levels from the Claude gateway.", { cause }),
+        ),
+        Effect.orElseSucceed(() => models),
+      );
+    });
 
     // Per-instance capabilities cache: keyed on binary + resolved HOME so
     // account-specific probes never share auth metadata across instances.
@@ -180,6 +219,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     const capabilitiesProbeCache = yield* Cache.makeWith(
       () =>
         probeClaudeCapabilities(effectiveConfig, processEnv, stateDir).pipe(
+          Effect.flatMap((probe) =>
+            withGatewayEffortLevels(probe?.models ?? []).pipe(
+              Effect.map((models) => (probe?.models ? { ...probe, models } : probe)),
+            ),
+          ),
+          Effect.tap((probe) =>
+            probe ? Ref.set(reportedModels, probe.models ?? []) : Effect.void,
+          ),
           Effect.flatMap((capabilities) =>
             ClaudeResetCredits.readClaudeOrganizationId(accountConfigPath).pipe(
               Effect.map((workspaceId) => ({
