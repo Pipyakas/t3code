@@ -367,7 +367,7 @@ function RowIcon({ children }: { readonly children: ReactNode }) {
   );
 }
 
-const INSTALLABLE_DRIVERS = ["codex", "claudeAgent"] as const;
+const INSTALLABLE_DRIVERS = ["claudeAgent", "opencode", "codex"] as const;
 type OnboardingAgentDriver = (typeof INSTALLABLE_DRIVERS)[number];
 const isInstallableDriver = (driver: string): driver is OnboardingAgentDriver =>
   (INSTALLABLE_DRIVERS as ReadonlyArray<string>).includes(driver);
