@@ -111,6 +111,18 @@ export function hasCloudPublicConfig(): boolean {
   }
 }
 
+/**
+ * Offline mode (`T3CODE_OFFLINE=1`) as reported by the server config: the
+ * server sends no product telemetry, never hosts through T3 Connect, and never
+ * runs the tailscale CLI, so clients hide hosting and Tailscale entry points.
+ * Sign-in (`hasCloudPublicConfig`) and connecting to other environments are
+ * unaffected. A server that does not send the flag (older, or online) reads as
+ * online.
+ */
+export const offlineFromServerConfig = (
+  config: { readonly offline?: boolean | undefined } | null | undefined,
+): boolean => config?.offline === true;
+
 export function resolveRelayClerkTokenOptions() {
   const { clerkJwtTemplate } = resolveCloudPublicConfig();
   if (!clerkJwtTemplate) {
