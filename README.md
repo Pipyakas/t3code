@@ -1,5 +1,11 @@
 # T3 Code
 
+This fork of T3 Code changes some defaults: Claude and OpenCode start enabled while Codex, Cursor, and Grok start off, and Git hosts other than GitHub and GitLab start off until enabled in Settings > Source control. It also runs the server as a Windows background service and supports SSH environments on Windows hosts.
+
+Desktop updates come from this fork's releases: upstream's newest stable release plus backported upstream fixes and this fork's changes, versioned `<upstream>-fork.N` and built as an unsigned Windows x64 installer and a Linux AppImage. Setting `T3CODE_OFFLINE=1` on a machine turns off telemetry, T3 Connect hosting, and Tailscale there; signing in to connect to other machines still works.
+
+The installation links below distribute **upstream T3 Code**, not this fork.
+
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
