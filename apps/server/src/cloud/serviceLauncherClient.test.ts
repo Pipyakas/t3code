@@ -38,8 +38,17 @@ class FakeLauncherProcess {
     this.#listeners.get(event)?.delete(listener);
   };
 
+  shutdownRequests = 0;
+  requestShutdown = () => {
+    this.shutdownRequests += 1;
+  };
+
   emit(message: ServiceLauncherParentMessage) {
     for (const listener of this.#listeners.get("message") ?? []) listener(message);
+  }
+
+  disconnect() {
+    for (const listener of this.#listeners.get("disconnect") ?? []) listener();
   }
 }
 
@@ -150,5 +159,22 @@ it.effect("ignores launcher context inherited without an IPC channel", () =>
       .pipe(Effect.flip);
     expect(error).toMatchObject({ _tag: "ServiceLauncherClientError", operation: "unmanaged" });
     expect(host.sent).toEqual([]);
+  }),
+);
+
+it.effect("shuts down when the launcher asks or goes away", () =>
+  Effect.gen(function* () {
+    const host = new FakeLauncherProcess({
+      protocol: SERVICE_LAUNCHER_PROTOCOL,
+      childVersion: "1.0.0",
+    });
+    yield* makeClient(host, "1.0.0");
+
+    host.emit({ type: "update-rejected", reason: "unrelated" });
+    expect(host.shutdownRequests).toBe(0);
+    host.emit({ type: "shutdown" });
+    expect(host.shutdownRequests).toBe(1);
+    host.disconnect();
+    expect(host.shutdownRequests).toBe(2);
   }),
 );
