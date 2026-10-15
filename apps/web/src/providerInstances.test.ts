@@ -13,6 +13,7 @@ import {
   getDefaultProviderInstanceModel,
   isProviderInstancePickerReady,
   isProviderInstancePickerVisible,
+  orderProviderInstanceEntries,
   resolveDefaultProviderModelSelection,
   resolveProviderCatalogAvailability,
   resolveSelectableProviderInstance,
@@ -282,6 +283,55 @@ describe("deriveProviderInstanceEntries", () => {
     expect(entry?.instanceId).toBe("codex_personal");
     expect(entry?.driverKind).toBe("codex");
     expect(entry?.isDefault).toBe(false);
+  });
+});
+
+describe("orderProviderInstanceEntries", () => {
+  const entriesFor = (...instanceIds: string[]) =>
+    deriveProviderInstanceEntries(
+      instanceIds.map((instanceId) =>
+        provider({ provider: ProviderDriverKind.make("opencode"), instanceId }),
+      ),
+    );
+  const orderOf = (...instanceIds: string[]) =>
+    instanceIds.map((instanceId) => ProviderInstanceId.make(instanceId));
+
+  it("puts listed ids first, exactly as listed", () => {
+    const entries = entriesFor("opencode", "opencode_work", "opencode_personal");
+    const ordered = orderProviderInstanceEntries(entries, orderOf("opencode_personal", "opencode"));
+    expect(ordered.map((entry) => entry.instanceId)).toEqual([
+      "opencode_personal",
+      "opencode",
+      "opencode_work",
+    ]);
+  });
+
+  it("keeps unlisted entries after the arranged ones in their original relative order", () => {
+    const entries = entriesFor("opencode", "opencode_work", "opencode_personal");
+    // An id that matches no entry is ignored rather than making room for it.
+    const ordered = orderProviderInstanceEntries(
+      entries,
+      orderOf("opencode_work", "removed_instance"),
+    );
+    expect(ordered.map((entry) => entry.instanceId)).toEqual([
+      "opencode_work",
+      "opencode",
+      "opencode_personal",
+    ]);
+  });
+
+  it("is a no-op on an empty order", () => {
+    const entries = entriesFor("opencode", "opencode_work");
+    expect(orderProviderInstanceEntries(entries, [])).toBe(entries);
+  });
+
+  it("does not mutate its input", () => {
+    const entries = entriesFor("opencode", "opencode_work", "opencode_personal");
+    const idsBefore = entries.map((entry) => entry.instanceId);
+    const orderBefore = orderOf("opencode_personal", "opencode");
+    orderProviderInstanceEntries(entries, orderBefore);
+    expect(entries.map((entry) => entry.instanceId)).toEqual(idsBefore);
+    expect(orderBefore).toEqual(orderOf("opencode_personal", "opencode"));
   });
 });
 
