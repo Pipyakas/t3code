@@ -1187,6 +1187,16 @@ export const ServerSettings = Schema.Struct({
   providerModelPreferences: Schema.NullOr(ProviderModelPreferences).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /**
+   * Partial presentation order for the provider lists (Settings > Providers,
+   * the picker's provider column). Listed ids come first in exactly this
+   * order; unlisted instances keep their existing relative order after them,
+   * so a newly added provider lands at the end instead of inside a saved
+   * arrangement.
+   */
+  providerOrder: Schema.Array(ProviderInstanceId).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(StorageCleanupSettings)({}))),
@@ -1532,6 +1542,9 @@ export const ServerSettingsPatch = Schema.Struct({
   setProviderModelOrder: Schema.optionalKey(
     Schema.Struct({ provider: ProviderInstanceId, modelOrder: Schema.Array(TrimmedString) }),
   ),
+  // Whole-list replacement: the patch carries the complete desired prefix, so
+  // the stored `providerOrder` is swapped, never merged entry by entry.
+  setProviderOrder: Schema.optionalKey(Schema.Struct({ order: Schema.Array(ProviderInstanceId) })),
   favorites: Schema.optionalKey(ModelFavorites),
   providerModelPreferences: Schema.optionalKey(ProviderModelPreferences),
   // Applied under the settings service's write lock, only while still unset.
