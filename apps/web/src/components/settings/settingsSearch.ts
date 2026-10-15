@@ -54,6 +54,10 @@ export interface SettingsSearchItem {
   readonly localBackendManagementOnly?: boolean;
   readonly localEnvironmentOnly?: boolean;
   readonly wslAvailableOnly?: boolean;
+  // Its row only renders while the server is online: offline mode
+  // (`T3CODE_OFFLINE=1`) hides hosting and Tailscale rows.
+  readonly offline?: boolean;
+  // Its row only renders while this environment's T3 Connect managed tunnel is on.
   readonly managedTunnelOnly?: boolean;
   readonly secondary?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
@@ -69,6 +73,8 @@ export interface SettingsSearchAvailability {
   readonly isWslSettingsRowVisible: boolean;
   readonly hasThreadAutoSettlement: boolean;
   readonly managedTunnelActive?: boolean;
+  /** True when the server runs in offline mode (`T3CODE_OFFLINE=1`). */
+  readonly offline?: boolean;
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
@@ -924,6 +930,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["serve magicdns endpoint remote secure network"],
     desktopOnly: true,
     localBackendManagementOnly: true,
+    offline: true,
   },
   {
     id: "wsl-backend",
@@ -946,6 +953,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["managed tunnel cloud other devices remote"],
     desktopOnly: true,
     cloudOnly: true,
+    offline: true,
   },
   {
     id: "hold-webhooks-while-offline",
@@ -956,6 +964,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["webhook automations offline queue mailbox t3 connect"],
     cloudOnly: true,
     managedTunnelOnly: true,
+    offline: true,
   },
   {
     id: "publish-agent-activity",
@@ -965,6 +974,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "connections-environment",
     searchTerms: ["mobile push notifications live activities cloud tunnel"],
     cloudOnly: true,
+    offline: true,
   },
   {
     id: "connections-environment",
@@ -1132,7 +1142,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.localEnvironmentOnly || !availability.localEnvironmentDisabled) &&
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
       (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
-      (!item.managedTunnelOnly || availability.managedTunnelActive === true),
+      (!item.managedTunnelOnly || availability.managedTunnelActive === true) &&
+      (!item.offline || availability.offline !== true),
   );
 }
 

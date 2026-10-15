@@ -3,6 +3,9 @@
 Connect a phone, browser, or another desktop app to T3 Code running on a different
 machine. That machine must stay running and reachable while you work.
 
+Setting `T3CODE_OFFLINE=1` on a server also disables hosting it through T3 Connect
+and disables Tailscale, so it stays reachable only over a direct address.
+
 ## T3 Connect
 
 T3 Connect makes an environment available to your other devices without setting
