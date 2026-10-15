@@ -7,7 +7,8 @@
  * public environment descriptor. Inside a linked git worktree the worktree's
  * own `.t3` is checked first (matching dev-runner precedence); otherwise the
  * shared T3 home. `--tailscale` publishes the server over Tailscale Serve
- * HTTPS and pairs through the tailnet URL instead.
+ * HTTPS and pairs through the tailnet URL instead; in offline mode
+ * (`T3CODE_OFFLINE=1`) Tailscale is disabled and `--tailscale` is refused.
  */
 import {
   type AuthEnvironmentScope,
@@ -38,6 +39,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } fr
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
+import { offlineMode } from "../offlineMode.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import {
   type PersistedServerRuntimeState,
@@ -75,11 +77,26 @@ export class NoRunningServerError extends Schema.TaggedError<NoRunningServerErro
   },
 ) {
   override get message(): string {
+    // In offline mode the relay-hosting suggestion would be wrong guidance, so
+    // name the local-network route instead. Read env directly (same check as
+    // the desktop main process) because message is a plain getter.
+    const offline = process.env.T3CODE_OFFLINE === "1";
     return [
       "No running T3 Code server found.",
       ...this.checkedStatePaths.map((statePath) => `  checked ${statePath}`),
-      "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`.",
+      offline
+        ? "Start one with `npx t3 serve`, or reach it from another machine over the local network."
+        : "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`.",
     ].join("\n");
+  }
+}
+
+export class TailscaleDisabledError extends Schema.TaggedError<TailscaleDisabledError>()(
+  "TailscaleDisabledError",
+  {},
+) {
+  override get message(): string {
+    return "Tailscale is disabled in offline mode (T3CODE_OFFLINE=1). Pair over the local network instead, or restart the server with a reachable --host.";
   }
 }
 
@@ -494,6 +511,14 @@ export const pairCommand = Command.make("pair", {
       // an explicit --log-level still wins.
       const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
 
+      // Offline mode (`T3CODE_OFFLINE=1`): Tailscale publishing is disabled, so
+      // refuse the flag with a clear message instead of spawning the tailscale
+      // CLI. Online, the flag still publishes through Tailscale Serve.
+      const offline = yield* offlineMode;
+      if (flags.tailscale && offline) {
+        return yield* new TailscaleDisabledError({});
+      }
+
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
 
       const notes: Array<string> = [];
@@ -509,7 +534,9 @@ export const pairCommand = Command.make("pair", {
         pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
         if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
           notes.push(
-            "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",
+            offline
+              ? "This URL is only reachable from this machine. Restart the server with a reachable --host."
+              : "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",
           );
         }
         if (target.variant === "dev" && target.state.devUrl === undefined) {
