@@ -226,6 +226,9 @@ function panel(options?: {
 
 // The section header and the end of the provider list both offer Add provider.
 
+const deleteButton = (id: string) =>
+  page.getByRole("button", { name: `Delete instance ${id}`, exact: true });
+
 async function setup() {
   await page.viewport(1280, 900);
   state.settings = DEFAULT_UNIFIED_SETTINGS;
@@ -367,6 +370,81 @@ describe("EnvironmentProviderSettings routing", () => {
       {},
     );
   });
+
+  it("saves a dragged provider order and renders the rows in the stored order", async () => {
+    await setup();
+    const openCodeId = ProviderInstanceId.make("opencode");
+    const openCodeWorkId = ProviderInstanceId.make("opencode_work");
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [openCodeId]: { driver: ProviderDriverKind.make("opencode"), enabled: true },
+        [openCodeWorkId]: {
+          driver: ProviderDriverKind.make("opencode"),
+          enabled: true,
+          displayName: "Work",
+        },
+      },
+    };
+    await setProviders([provider()]);
+    await using screen = await render(panel());
+
+    // Codex is always listed, after the drivers that start enabled.
+    const rowNames = () =>
+      page
+        .getByRole("button", { name: /^Select / })
+        .elements()
+        .map((row) => row.getAttribute("aria-label"));
+    expect(rowNames()).toEqual(["Select Claude", "Select OpenCode", "Select Work", "Select Codex"]);
+
+    // Keyboard reorder: the handle starts the drag, the arrow moves it, Space drops it.
+    await page.getByRole("button", { name: "Reorder Work" }).element().focus();
+    await userEvent.keyboard("{Space}");
+    await userEvent.keyboard("{ArrowUp}");
+    await userEvent.keyboard("{Space}");
+    // A generic settings update would route this delta key to client settings.
+    expect(state.updateSettings).not.toHaveBeenCalled();
+    expect(state.updateModelPreferences).toHaveBeenCalledExactlyOnceWith({
+      setProviderOrder: {
+        order: [ProviderInstanceId.make("claudeAgent"), openCodeWorkId, openCodeId, codexId],
+      },
+    });
+
+    // The stored order, not the drag event, drives the next render.
+    state.settings = {
+      ...state.settings,
+      providerOrder: [openCodeWorkId, openCodeId],
+    };
+    await screen.rerender(panel());
+    expect(rowNames()).toEqual(["Select Work", "Select OpenCode", "Select Claude", "Select Codex"]);
+  });
+
+  it.each([
+    ["grok", true],
+    ["cursor", true],
+    ["antigravity", false],
+    ["opencode", false],
+    ["claudeAgent", false],
+  ])(
+    "offers removing the switched-off %s built-in only for Grok and Cursor",
+    async (driver, removable) => {
+      await setup();
+      const instanceId = ProviderInstanceId.make(driver);
+      state.settings = {
+        ...DEFAULT_UNIFIED_SETTINGS,
+        providerInstances: {
+          [instanceId]: { driver: ProviderDriverKind.make(driver), enabled: false },
+        },
+      };
+      await setProviders([provider()]);
+      await using _screen = await render(panel({ targetInstanceId: instanceId }));
+      if (removable) {
+        await expect.element(deleteButton(instanceId)).toBeVisible();
+      } else {
+        await expect.element(deleteButton(instanceId)).not.toBeInTheDocument();
+      }
+    },
+  );
 });
 
 describe("EnvironmentProviderSettings instance removal", () => {
