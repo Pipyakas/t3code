@@ -13,6 +13,7 @@ import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useCloudLinkController } from "~/cloud/useCloudLinkController";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { isHostedStaticApp } from "~/hostedPairing";
+import { useOfflineMode } from "~/hooks/useOfflineMode";
 import {
   useEnvironments,
   usePrimaryEnvironment,
@@ -63,7 +64,11 @@ function ConfiguredConnectOnboardingDialog() {
     primaryEnvironmentId === null ? environmentsReady : primarySessionState._tag !== "Initial";
 
   const controller = useCloudLinkController();
-  const showPublishStep = canManageRelay && controller.linkState.target !== null;
+  // Offline mode (`T3CODE_OFFLINE=1`): this machine cannot be published, so
+  // the dialog never offers the host ("publish") step — only the client-only
+  // devices step.
+  const offline = useOfflineMode();
+  const showPublishStep = !offline && canManageRelay && controller.linkState.target !== null;
   const steps: ReadonlyArray<OnboardingStep> = showPublishStep
     ? ["publish", "devices"]
     : ["devices"];
@@ -116,7 +121,7 @@ function ConfiguredConnectOnboardingDialog() {
       setExposeEnvironment(true);
       setPublishAgentActivity(true);
       setDontShowAgain(false);
-      setStep(canManageRelay && controller.linkState.target !== null ? "publish" : "devices");
+      setStep(showPublishStep ? "publish" : "devices");
       setOpenForAccount(requestedAccount);
     }
   }

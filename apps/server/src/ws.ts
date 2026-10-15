@@ -179,6 +179,7 @@ import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner
 import * as ProviderAuthService from "./provider/ProviderAuthService.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
+import { offlineMode } from "./offlineMode.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
@@ -1376,6 +1377,10 @@ export const layerWsRpc = (
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
       const relayClient = yield* RelayClient.RelayClient;
+      // Offline mode (`T3CODE_OFFLINE=1`): this machine never hosts through
+      // T3 Connect, so the relay client is never downloaded. Read once at
+      // layer build so the install handler below can stay a plain Stream.
+      const offline = yield* offlineMode;
       // Webhook URLs start agents; expose them only to operate-scoped sessions while keeping tasks readable.
       const withVisibleWebhookUrls = (result: ScheduledTaskListResult): ScheduledTaskListResult =>
         currentSession.scopes.includes(AuthOrchestrationOperateScope)
@@ -1755,6 +1760,10 @@ export const layerWsRpc = (
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
           providers,
+          // Offline mode (`T3CODE_OFFLINE=1`): tell clients so they hide
+          // hosting and Tailscale entry points. Absent when online, keeping
+          // the upstream payload.
+          ...(offline ? { offline: true } : {}),
           ...editorConfig,
           remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
             remoteOpenTargets.resolveTargets(),
@@ -2587,30 +2596,39 @@ export const layerWsRpc = (
         [WS_METHODS.serverGetBackgroundPolicy]: (_input) => backgroundPolicy.snapshot,
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
-          Stream.callback<RelayClientInstallProgressEvent, RelayClientInstallFailedError>((queue) =>
-            relayClient
-              .installWithProgress((event) => Queue.offer(queue, event).pipe(Effect.asVoid))
-              .pipe(
-                Effect.flatMap((status) =>
-                  Queue.offer(queue, {
-                    type: "complete",
-                    status,
-                  }),
-                ),
-                Effect.catchTags({
-                  RelayClientInstallError: (error) =>
-                    Queue.fail(
-                      queue,
-                      new RelayClientInstallFailedError({
-                        reason: error.reason,
-                        message: error.message,
-                      }),
-                    ),
+          offline
+            ? Stream.fail(
+                new RelayClientInstallFailedError({
+                  reason: "unsupported_platform",
+                  message:
+                    "T3 Connect hosting is disabled in offline mode (T3CODE_OFFLINE=1); the relay client will not be installed.",
                 }),
-                Effect.andThen(Queue.end(queue)),
-                Effect.forkScoped,
+              )
+            : Stream.callback<RelayClientInstallProgressEvent, RelayClientInstallFailedError>(
+                (queue) =>
+                  relayClient
+                    .installWithProgress((event) => Queue.offer(queue, event).pipe(Effect.asVoid))
+                    .pipe(
+                      Effect.flatMap((status) =>
+                        Queue.offer(queue, {
+                          type: "complete",
+                          status,
+                        }),
+                      ),
+                      Effect.catchTags({
+                        RelayClientInstallError: (error) =>
+                          Queue.fail(
+                            queue,
+                            new RelayClientInstallFailedError({
+                              reason: error.reason,
+                              message: error.message,
+                            }),
+                          ),
+                      }),
+                      Effect.andThen(Queue.end(queue)),
+                      Effect.forkScoped,
+                    ),
               ),
-          ),
         [WS_METHODS.pullRequestsList]: (input) => pullRequests.list(input),
         [WS_METHODS.pullRequestsListStats]: (input) => pullRequests.listStats(input),
         [WS_METHODS.pullRequestsFilterOptions]: (input) => pullRequests.filterOptions(input),

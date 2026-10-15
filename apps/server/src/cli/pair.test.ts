@@ -265,6 +265,30 @@ describe("t3 pair", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("in offline mode refuses --tailscale because Tailscale is disabled", () =>
+    Effect.gen(function* () {
+      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-ts-disabled-"));
+
+      const error = yield* Effect.provide(
+        runCli(["pair", "--tailscale", "--base-dir", baseDir]).pipe(Effect.flip),
+        Layer.mergeAll(
+          layerCliRuntime,
+          TestConsole.layer,
+          ConfigProvider.layer(ConfigProvider.fromUnknown({ T3CODE_OFFLINE: "1" })),
+        ),
+      );
+
+      const rendered = [
+        String(error),
+        typeof error === "object" && error !== null && "message" in error
+          ? String(error.message)
+          : "",
+        typeof error === "object" && error !== null && "cause" in error ? String(error.cause) : "",
+      ].join("\n");
+      assert.include(rendered, "Tailscale is disabled in offline mode");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("ignores runtime state whose recorded pid is no longer alive", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {

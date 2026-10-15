@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { hasCloudPublicConfig } from "./publicConfig.ts";
+import { hasCloudPublicConfig, offlineFromServerConfig } from "./publicConfig.ts";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -74,5 +74,18 @@ describe("hasCloudPublicConfig", () => {
 
       expect(hasCloudPublicConfig()).toBe(true);
     });
+  });
+});
+
+describe("offlineFromServerConfig", () => {
+  it("reads a server that sends the offline flag", () => {
+    expect(offlineFromServerConfig({ offline: true })).toBe(true);
+  });
+
+  it("reads online servers, older servers, and missing config as online", () => {
+    expect(offlineFromServerConfig({ offline: false })).toBe(false);
+    expect(offlineFromServerConfig({})).toBe(false);
+    expect(offlineFromServerConfig(null)).toBe(false);
+    expect(offlineFromServerConfig(undefined)).toBe(false);
   });
 });
