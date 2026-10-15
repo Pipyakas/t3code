@@ -17,6 +17,33 @@ function settingsWith(overrides: Partial<ServerSettings>): ServerSettings {
 }
 
 describe("deriveProviderInstanceConfigMap", () => {
+  it("synthesizes default instances in the built-in driver order clients render", () => {
+    const merged = deriveProviderInstanceConfigMap(settingsWith({ providerInstances: {} }));
+
+    // This order is the cross-driver order every client shows, so the harnesses
+    // enabled out of the box lead and Codex follows them.
+    expect(Object.keys(merged).slice(0, 3)).toEqual(["claudeAgent", "opencode", "codex"]);
+  });
+
+  it("orders saved instances by built-in driver order, keeping saved order within a driver", () => {
+    const merged = deriveProviderInstanceConfigMap(
+      settingsWith({
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: { driver: ProviderDriverKind.make("codex") },
+          [ProviderInstanceId.make("codex_work")]: { driver: ProviderDriverKind.make("codex") },
+          [ProviderInstanceId.make("custom")]: { driver: ProviderDriverKind.make("fork-driver") },
+          [ProviderInstanceId.make("claudeAgent")]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+          },
+        },
+      }),
+    );
+
+    const keys = Object.keys(merged);
+    expect(keys.slice(0, 4)).toEqual(["claudeAgent", "opencode", "codex", "codex_work"]);
+    expect(keys.at(-1)).toBe("custom");
+  });
+
   it("turns a machine-disabled instance on when a project enables it", () => {
     const settings = settingsWith({
       providerInstances: {
