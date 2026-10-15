@@ -20,6 +20,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
+import { offlineModeConfig } from "../offlineMode.ts";
 import { getTelemetryIdentity, type TelemetryOwner } from "./Identify.ts";
 
 interface BufferedAnalyticsEvent {
@@ -68,6 +69,7 @@ const TelemetryEnvConfig = Config.all({
     Config.withDefault("https://ingest.t3.codes"),
   ),
   enabled: Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),
+  offline: offlineModeConfig,
   flushBatchSize: Config.Number("T3CODE_TELEMETRY_FLUSH_BATCH_SIZE").pipe(Config.withDefault(20)),
   maxBufferedEvents: Config.Number("T3CODE_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
     Config.withDefault(1_000),
@@ -126,9 +128,22 @@ function serverOsFromNodePlatform(platform: string): ClientOs {
 }
 
 /** @public */
-/** @public */
 export const make = Effect.gen(function* () {
   const telemetryConfig = yield* TelemetryEnvConfig;
+  // Offline mode (`T3CODE_OFFLINE=1`): record and send nothing. Return the
+  // no-op service before the identifier read or any HTTP client is touched,
+  // so Identify.ts does no work and no PostHog request can leave the machine.
+  if (telemetryConfig.offline) {
+    return AnalyticsService.of({
+      record: Effect.fn("AnalyticsService.record")(function () {
+        return Effect.void;
+      }),
+      flush: Effect.void,
+      recordOwners: Effect.fn("AnalyticsService.recordOwners")(function () {
+        return Effect.void;
+      }),
+    });
+  }
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const { distinctId, installId } = yield* getTelemetryIdentity;

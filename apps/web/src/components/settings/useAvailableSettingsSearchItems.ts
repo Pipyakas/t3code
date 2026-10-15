@@ -4,6 +4,7 @@ import { usePrimaryCloudLinkState } from "~/cloud/primaryCloudLinkState";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { isElectron } from "~/env";
 import { isLocalEnvironmentDisabled } from "~/localEnvironment";
+import { useOfflineMode } from "~/hooks/useOfflineMode";
 import { desktopWslStateAtom } from "~/state/desktopWslState";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
@@ -48,6 +49,9 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
     cloudLinkState?.linkRevoked !== true &&
     (cloudLinkState?.managedTunnelActive ?? cloudLinkState?.linked ?? false) === true;
   const localEnvironmentDisabled = isLocalEnvironmentDisabled() === true;
+  // Offline mode (`T3CODE_OFFLINE=1`): hosting and Tailscale rows hide from
+  // search while sign-in config stays present for everything else.
+  const offline = useOfflineMode() === true;
   const canManageLocalBackend = !localEnvironmentDisabled && canMaintain;
   const desktopWsl = useEnvironmentQuery(
     isElectron && canManageLocalBackend ? desktopWslStateAtom : null,
@@ -66,5 +70,6 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
     isWslSettingsRowVisible: wslSettingsRowVisible,
     hasThreadAutoSettlement,
     managedTunnelActive,
+    offline,
   });
 }
