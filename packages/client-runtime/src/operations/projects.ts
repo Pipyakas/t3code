@@ -109,11 +109,22 @@ export function getDefaultCloneUrl(
     : repository.sshUrl;
 }
 
+/**
+ * The hosts the clone picker offers, ready ones first. A host the environment has switched off
+ * in Settings is not offered at all; a server that predates the setting reports nothing, and
+ * nothing reported is nothing removed.
+ */
 export function sortAddProjectProviderSources(
   readiness: AddProjectRemoteSourceReadiness,
+  discovery: SourceControlDiscoveryResult | null = null,
 ): ReadonlyArray<SourceControlProviderKind> {
+  const switchedOff = new Set(
+    (discovery?.sourceControlProviders ?? [])
+      .filter((provider) => provider.enabled === false)
+      .map((provider) => provider.kind),
+  );
   return Arr.sort(
-    ADD_PROJECT_REMOTE_PROVIDER_SOURCES,
+    ADD_PROJECT_REMOTE_PROVIDER_SOURCES.filter((source) => !switchedOff.has(source)),
     Order.mapInput(
       Order.Struct({
         ready: Order.flip(Order.Boolean),
@@ -143,6 +154,14 @@ export function buildAddProjectRemoteSourceReadiness(
     if (source === "url") return READY;
     const provider = providerByKind.get(source);
     if (!provider) return UNAVAILABLE;
+    // The server answers for this environment, so a host Settings has switched off is not
+    // offered here. A server that predates the setting says nothing, which reads as on.
+    if (provider.enabled === false) {
+      return {
+        ready: false,
+        hint: `${provider.label} is turned off. Turn it on in Settings -> Source Control.`,
+      };
+    }
     if (provider.status !== "available") return { ready: false, hint: provider.installHint };
     if (provider.auth.status === "unauthenticated") {
       return {

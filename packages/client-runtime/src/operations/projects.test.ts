@@ -230,6 +230,50 @@ describe("add project shared logic", () => {
     expect(sortAddProjectProviderSources(readiness)[0]).toBe("github");
   });
 
+  it("drops a host the environment has switched off from the clone picker and the publish targets", () => {
+    const provider = (kind: string, enabled: boolean | undefined) => ({
+      kind: SourceControlProviderKind.make(kind),
+      label: kind,
+      status: "available" as const,
+      installHint: "",
+      version: Option.none<string>(),
+      detail: Option.none<string>(),
+      auth: {
+        status: "authenticated" as const,
+        account: Option.some(`${kind}-owner`),
+        host: Option.none<string>(),
+        detail: Option.none<string>(),
+      },
+      ...(enabled === undefined ? {} : { enabled }),
+    });
+    const discovery = {
+      versionControlSystems: [],
+      sourceControlProviders: [
+        provider("github", true),
+        provider("forgejo", false),
+        // A server that predates the setting says nothing, which reads as on.
+        provider("gitlab", undefined),
+      ],
+    };
+
+    const readiness = buildAddProjectRemoteSourceReadiness(discovery);
+    expect(readiness(SourceControlProviderKind.make("forgejo"))).toEqual({
+      ready: false,
+      hint: "forgejo is turned off. Turn it on in Settings -> Source Control.",
+    });
+
+    const offered = sortAddProjectProviderSources(readiness, discovery).map(String);
+    expect(offered).not.toContain("forgejo");
+    expect(offered).toContain("github");
+    expect(offered).toContain("gitlab");
+
+    const publishTargets = getNewProjectPublishTargets(discovery).map(
+      (target) => target.definition.kind,
+    );
+    expect(publishTargets).not.toContain("forgejo");
+    expect(publishTargets).toContain("github");
+  });
+
   it("finds existing projects by normalized path in the target environment", () => {
     const env = EnvironmentId.make("env");
     const other = EnvironmentId.make("other");
