@@ -133,6 +133,7 @@ import {
   SavedBackendListRow,
 } from "./SavedEnvironmentRows";
 import { AddEnvironmentDialog } from "./AddEnvironmentDialog";
+import { useOfflineMode } from "~/hooks/useOfflineMode";
 
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 const EMPTY_ADVERTISED_ENDPOINTS: ReadonlyArray<AdvertisedEndpoint> = [];
@@ -153,6 +154,9 @@ function LocalVersionStatusLabel() {
 
 /** Environments lists the machines this app connects to; access covers who may reach this one. */
 export function ConnectionsSettings({ view }: { readonly view: "environments" | "access" }) {
+  // Offline mode (`T3CODE_OFFLINE=1`): Tailscale is disabled, so no row
+  // offers Tailscale setup.
+  const offline = useOfflineMode();
   const desktopBridge = window.desktopBridge;
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
@@ -902,34 +906,35 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
     );
   };
 
-  const renderTailscaleRow = () => (
-    <SettingsRow
-      title={searchableSetting("tailscale-https").title}
-      description={
-        tailscaleHttpsEndpoint
-          ? tailscaleHttpsEndpoint.status === "available"
-            ? tailscaleHttpsEndpoint.httpBaseUrl
-            : "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
-          : missingTailscaleEndpointDescription(desktopServerExposureState)
-      }
-      control={
-        tailscaleHttpsEndpoint ? (
-          <Switch
-            checked={tailscaleHttpsEndpoint.status === "available"}
-            disabled={isUpdatingTailscaleServe}
-            onCheckedChange={(checked) => {
-              if (checked) {
-                handleStartTailscaleServeSetup(tailscaleHttpsEndpoint);
-                return;
-              }
-              handleStartTailscaleServeDisable(tailscaleHttpsEndpoint);
-            }}
-            aria-label="Enable Tailscale HTTPS"
-          />
-        ) : null
-      }
-    />
-  );
+  const renderTailscaleRow = () =>
+    offline ? null : (
+      <SettingsRow
+        title={searchableSetting("tailscale-https").title}
+        description={
+          tailscaleHttpsEndpoint
+            ? tailscaleHttpsEndpoint.status === "available"
+              ? tailscaleHttpsEndpoint.httpBaseUrl
+              : "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+            : missingTailscaleEndpointDescription(desktopServerExposureState)
+        }
+        control={
+          tailscaleHttpsEndpoint ? (
+            <Switch
+              checked={tailscaleHttpsEndpoint.status === "available"}
+              disabled={isUpdatingTailscaleServe}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  handleStartTailscaleServeSetup(tailscaleHttpsEndpoint);
+                  return;
+                }
+                handleStartTailscaleServeDisable(tailscaleHttpsEndpoint);
+              }}
+              aria-label="Enable Tailscale HTTPS"
+            />
+          ) : null
+        }
+      />
+    );
   const renderAuthorizedClients = () => (
     <>
       {desktopAccessManagementError ? (
