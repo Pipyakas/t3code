@@ -157,6 +157,12 @@ export const SourceControlProviderDiscoveryItem = Schema.Struct({
   auth: SourceControlProviderAuth,
   /** The server is configured to sign in through the host's app; clients offer it only then. */
   appSignIn: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Whether this environment has the host switched on in Settings. Optional so a client still
+   * decodes discovery from a server that predates the setting; absent means the host behaves as
+   * it always did. See `isSourceControlHostEnabled` for what decides it.
+   */
+  enabled: Schema.optional(Schema.Boolean),
 });
 export type SourceControlProviderDiscoveryItem = typeof SourceControlProviderDiscoveryItem.Type;
 
