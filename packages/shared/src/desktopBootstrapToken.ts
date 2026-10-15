@@ -43,3 +43,12 @@ export function isValidDesktopBootstrapToken(
     return expected.length === presented.length && NodeCrypto.timingSafeEqual(expected, presented);
   });
 }
+
+/**
+ * A background service (`t3 service`) has no desktop to hand it a secret, so it
+ * keeps one in its secret store (`<stateDir>/secrets/<name>.bin`, hex-encoded
+ * when used). A desktop app that finds the service running reads the same
+ * secret and uses the service instead of starting a second server on the same
+ * state.
+ */
+export const BACKGROUND_SERVICE_DESKTOP_SECRET_NAME = "background-service-desktop-secret";
