@@ -97,6 +97,7 @@ import {
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
+  orderProviderInstanceEntries,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
@@ -2231,12 +2232,15 @@ export function GeneralSettingsPanel() {
   const textGenInstanceId = textGenerationModelSelection.instanceId;
   const textGenModel = textGenerationModelSelection.model;
   const textGenModelOptions = textGenerationModelSelection.options;
-  const textGenerationModelInstanceEntries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(textGenerationProviders),
-      settings,
-      target?.projectId ?? null,
+  const textGenerationModelInstanceEntries = orderProviderInstanceEntries(
+    sortProviderInstanceEntries(
+      applyProviderInstanceSettings(
+        deriveProviderInstanceEntries(textGenerationProviders),
+        settings,
+        target?.projectId ?? null,
+      ),
     ),
+    settings.providerOrder ?? [],
   );
   const hasTextGenerationProvider = textGenerationModelInstanceEntries.some(
     (entry) => entry.enabled && entry.isAvailable,
