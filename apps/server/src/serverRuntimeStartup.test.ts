@@ -48,11 +48,15 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 
-it("uses the canonical Codex model for auto-bootstrap", () => {
-  assert.deepEqual(ServerRuntimeStartup.getAutoBootstrapThreadModelSelection(), {
-    instanceId: ProviderInstanceId.make("codex"),
-    model: DEFAULT_MODEL,
+it("auto-bootstraps on an instance this build enables by default", () => {
+  const selection = ServerRuntimeStartup.getAutoBootstrapThreadModelSelection();
+
+  assert.deepEqual(selection, {
+    instanceId: ProviderInstanceId.make("claudeAgent"),
+    model: "claude-fable-5-1",
   });
+  // A Codex model slug on a Claude instance would be an unlaunchable pair.
+  assert.notStrictEqual(selection.model, DEFAULT_MODEL);
 });
 
 it.effect.each([
