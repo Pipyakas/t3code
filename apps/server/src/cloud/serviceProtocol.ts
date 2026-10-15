@@ -61,6 +61,10 @@ export type ServiceLauncherParentMessage =
   | {
       readonly type: "committed";
       readonly updateId: string;
+    }
+  /** Graceful stop where signals cannot carry one (Windows). Older children ignore it. */
+  | {
+      readonly type: "shutdown";
     };
 
 const SEMVER_NUMBER = "(?:0|[1-9]\\d*)";
@@ -262,6 +266,7 @@ export function decodeServiceLauncherParentMessage(
   if (value.type === "update-accepted" && typeof value.updateId === "string") {
     return { type: value.type, updateId: value.updateId };
   }
+  if (value.type === "shutdown") return { type: value.type };
   return value.type === "committed" && typeof value.updateId === "string"
     ? { type: value.type, updateId: value.updateId }
     : undefined;
