@@ -900,6 +900,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             send: () => false,
             on: () => undefined,
             off: () => undefined,
+            requestShutdown: () => undefined,
           }),
         );
 
