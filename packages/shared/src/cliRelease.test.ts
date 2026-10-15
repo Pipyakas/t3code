@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  RELEASE_REPOSITORY,
   cliArchiveFileName,
   cliArchivePlatformKey,
   cliArchiveTarCommand,
@@ -33,7 +34,7 @@ describe("cliRelease", () => {
 
   it("resolves download URLs under the tagged release, honoring a mirror", () => {
     expect(cliReleaseDownloadBaseUrl("1.2.3")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/download/v1.2.3",
+      `https://github.com/${RELEASE_REPOSITORY}/releases/download/v1.2.3`,
     );
     expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/t3/")).toBe(
       "https://mirror.example/t3/v1.2.3",
@@ -68,6 +69,8 @@ describe("cliRelease", () => {
     expect(cliReleaseChannelOf("1.2.3-preview.20260911.4")).toBe("preview");
     // A prerelease that is not one of our trains is not silently a nightly.
     expect(cliReleaseChannelOf("1.2.3-rc.1")).toBe("stable");
+    // Fork releases (<upstream stable>-fork.N) follow the stable channel.
+    expect(cliReleaseChannelOf("0.1.0-fork.3")).toBe("stable");
   });
 
   it("picks the newest non-draft release on the requested channel", () => {
@@ -87,7 +90,7 @@ describe("cliRelease", () => {
 
   it("pages through the release index at the largest page GitHub allows", () => {
     expect(cliReleaseIndexPageUrl(1)).toBe(
-      "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=100&page=1",
+      `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases?per_page=100&page=1`,
     );
     expect(cliReleaseIndexPageUrl(3)).toContain("page=3");
   });

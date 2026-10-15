@@ -4,6 +4,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -110,7 +111,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(script, "T3_NODE_SCRIPT_PATH=''");
     assert.include(
       script,
-      "T3_RELEASE_BASE_URL='https://github.com/pingdotgg/t3code/releases/download'",
+      `T3_RELEASE_BASE_URL='https://github.com/${RELEASE_REPOSITORY}/releases/download'`,
     );
     assert.include(script, 'T3_RUNTIME_DIR="$HOME/.t3/runtime/versions/$T3_ARCHIVE_VERSION"');
     assert.include(script, 'T3_ARCHIVE="t3-$T3_ARCHIVE_VERSION-$T3_PLATFORM-$T3_ARCH.tar.gz"');
