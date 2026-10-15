@@ -27,14 +27,9 @@ export const openRouterIcon: ProviderIcon = {
   ],
 };
 
+// Presentation order for Settings > Providers and the add-provider dialog; it leads with the
+// harnesses this build enables by default, matching `BUILT_IN_DRIVERS` on the server.
 export const providerClients = makeProviderClientRegistry([
-  {
-    driverKind: ProviderDriverKind.make("codex"),
-    label: "Codex",
-    modelFamilies: ["GPT-", "GPT "],
-    acpRegistryAgentIds: ["codex-acp"],
-    settingsSchema: CodexSettings,
-  },
   {
     driverKind: ProviderDriverKind.make("claudeAgent"),
     label: "Claude",
@@ -42,10 +37,17 @@ export const providerClients = makeProviderClientRegistry([
     acpRegistryAgentIds: ["claude-acp"],
     settingsSchema: ClaudeSettings,
   },
+  openCodeClient,
+  {
+    driverKind: ProviderDriverKind.make("codex"),
+    label: "Codex",
+    modelFamilies: ["GPT-", "GPT "],
+    acpRegistryAgentIds: ["codex-acp"],
+    settingsSchema: CodexSettings,
+  },
   cursorClient,
   grokClient,
   fxClient,
-  openCodeClient,
   {
     driverKind: ProviderDriverKind.make("antigravity"),
     label: "Antigravity",

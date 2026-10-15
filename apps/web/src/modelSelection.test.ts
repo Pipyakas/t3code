@@ -83,9 +83,17 @@ function settingsWithProviderInstances(): UnifiedSettings {
 describe("scoped default model selections", () => {
   // regression: #27997 equal automatic defaults can resolve to different providers
   it("compares automatic defaults using each environment's models", () => {
+    // Codex starts off in this fork; these environments' defaults resolve to Codex.
+    const codexInstances = {
+      [ProviderInstanceId.make("codex")]: {
+        driver: ProviderDriverKind.make("codex"),
+        enabled: true,
+      },
+    };
+    const codexServerSettings = { ...DEFAULT_SERVER_SETTINGS, providerInstances: codexInstances };
     const codex = {
       projectId: null,
-      settings: DEFAULT_UNIFIED_SETTINGS,
+      settings: { ...DEFAULT_UNIFIED_SETTINGS, providerInstances: codexInstances },
       providers: [provider({ instanceId: "codex", models: ["gpt-6-astra"] })],
     };
     const claude = {
@@ -119,7 +127,7 @@ describe("scoped default model selections", () => {
     const project = {
       projectId,
       settings: {
-        ...DEFAULT_SERVER_SETTINGS,
+        ...codexServerSettings,
         projectSettingsOverrides: {
           [projectId]: {
             providerInstances: { [ProviderInstanceId.make("codex")]: { enabled: false } },
@@ -145,7 +153,7 @@ describe("scoped default model selections", () => {
     const configured = {
       projectId: null,
       settings: {
-        ...DEFAULT_SERVER_SETTINGS,
+        ...codexServerSettings,
         providerModelPreferences: {
           [ProviderInstanceId.make("codex")]: {
             hiddenModels: ["gpt-6-astra"],
@@ -155,7 +163,7 @@ describe("scoped default model selections", () => {
       },
       providers: [provider({ instanceId: "codex", models: ["gpt-6-astra", "gpt-6-sol"] })],
     };
-    const inherited = { ...configured, settings: DEFAULT_SERVER_SETTINGS };
+    const inherited = { ...configured, settings: codexServerSettings };
     expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [configured, inherited])).toBe(
       true,
     );
@@ -170,7 +178,7 @@ describe("scoped default model selections", () => {
     expect(defaultModelSelectionsAreMixed(clientSettings, [inherited, configured])).toBe(false);
     expect(
       defaultModelSelectionsAreMixed(clientSettings, [
-        { ...inherited, settings: { ...DEFAULT_SERVER_SETTINGS, providerModelPreferences: {} } },
+        { ...inherited, settings: { ...codexServerSettings, providerModelPreferences: {} } },
         inherited,
       ]),
     ).toBe(true);

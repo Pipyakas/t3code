@@ -2315,7 +2315,14 @@ it.effect("reports a restart that stops the running turn as restarted", () =>
         Effect.provide(
           ThreadManagementService.layer.pipe(
             Layer.provideMerge(layer),
-            Layer.provide(ServerSettings.layerTest()),
+            // Codex starts off in this fork; this test sends to a Codex instance.
+            Layer.provide(
+              ServerSettings.layerTest({
+                providerInstances: {
+                  [ProviderInstanceId.make("codex")]: { driver: "codex", enabled: true },
+                },
+              }),
+            ),
             Layer.provide(
               CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
             ),
