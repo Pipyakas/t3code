@@ -635,6 +635,19 @@ function needsRecovery(
                 transfer.type === "subagent_result" &&
                 transfer.sourceThreadId === projection.thread.id &&
                 transfer.targetThreadId === parentThreadId,
+            )) ||
+          // A follow-up task has no delegatedTaskId, so the branch above cannot
+          // match it, and the original row already transferred its result, so
+          // the branch below is closed too. Without this a follow-up left
+          // running outlives every recovery pass and holds its parent thread.
+          (["completed", "interrupted", "failed", "cancelled", "rolled_back"].includes(
+            latestUnheldRun(projection.runs)?.status ?? "idle",
+          ) &&
+            (parent?.subagents ?? []).some(
+              (task) =>
+                task.origin === "app_owned" &&
+                task.childThreadId === projection.thread.id &&
+                ["pending", "running", "waiting"].includes(task.status),
             )))
       );
     }
@@ -700,6 +713,12 @@ function preserveRunRecordedFields(
   if (current === undefined) return next;
   return {
     ...next,
+    // A follow-up task stamps itself onto the run already in flight. The
+    // provider's next status snapshot for that run carries no task, and
+    // dropping the link left the task with no run to finalize against.
+    ...(next.delegatedTaskId === undefined && current.delegatedTaskId !== undefined
+      ? { delegatedTaskId: current.delegatedTaskId }
+      : {}),
     ...(next.delegatedCompletion === undefined && current.delegatedCompletion !== undefined
       ? { delegatedCompletion: current.delegatedCompletion }
       : {}),
@@ -2040,7 +2059,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 requested_at = excluded.requested_at,
                 completed_at = excluded.completed_at,
                 payload_json = ${keepRecordedRunField(
-                  keepRecordedRunField(sql`excluded.payload_json`, "$.delegatedCompletion"),
+                  keepRecordedRunField(
+                    keepRecordedRunField(sql`excluded.payload_json`, "$.delegatedTaskId"),
+                    "$.delegatedCompletion",
+                  ),
                   "$.restartCancelledBackgroundWork",
                 )}
             `;
@@ -3858,7 +3880,24 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                     WHERE source_thread_id = child.thread_id
                       AND target_thread_id = json_extract(child.payload_json, '$.lineage.parentThreadId')
                       AND type = 'subagent_result'
-                  )))
+                  )) OR (
+                    -- A follow-up task has no delegatedTaskId for the first branch
+                    -- to match, and the original already transferred its result, so
+                    -- the second branch is closed too. Matching on the task still
+                    -- running against a child whose work has ended is what lets a
+                    -- task left running be repaired instead of holding its parent.
+                    EXISTS (
+                      SELECT 1 FROM orchestration_v2_projection_subagents AS stuck
+                      WHERE stuck.child_thread_id = child.thread_id
+                        AND stuck.origin = 'app_owned'
+                        AND stuck.status IN ('pending', 'running', 'waiting')
+                    )
+                    AND (SELECT status FROM orchestration_v2_projection_runs
+                         WHERE thread_id = child.thread_id
+                           AND NOT (status = 'queued' AND json_extract(payload_json, '$.queueHeld') IS 1)
+                         ORDER BY ordinal DESC LIMIT 1
+                        ) IN ('completed', 'interrupted', 'failed', 'cancelled', 'rolled_back')
+                  ))
                   ELSE 0 END
               `;
             case "runtime":
