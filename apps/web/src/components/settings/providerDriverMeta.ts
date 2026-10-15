@@ -12,20 +12,26 @@ import { museClient } from "@t3tools/provider-muse/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
 
+/**
+ * The provider client definitions this web build ships, in presentation order.
+ * This is the order the settings providers panel and the add-provider dialog
+ * list drivers in; it should lead with the harnesses this build enables by
+ * default, matching `BUILT_IN_DRIVERS` on the server.
+ */
 export const providerClients = makeProviderClientRegistry([
-  {
-    driverKind: ProviderDriverKind.make("codex"),
-    label: "Codex",
-    settingsSchema: CodexSettings,
-  },
   {
     driverKind: ProviderDriverKind.make("claudeAgent"),
     label: "Claude",
     settingsSchema: ClaudeSettings,
   },
+  openCodeClient,
+  {
+    driverKind: ProviderDriverKind.make("codex"),
+    label: "Codex",
+    settingsSchema: CodexSettings,
+  },
   cursorClient,
   grokClient,
-  openCodeClient,
   {
     driverKind: ProviderDriverKind.make("antigravity"),
     label: "Antigravity",

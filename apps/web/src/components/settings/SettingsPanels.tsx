@@ -133,7 +133,8 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
   "double-click": "Double press",
 };
 
-const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
+/** Last resort when no provider is enabled; a driver that is off by default. */
+const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 function AboutVersionTitle() {
   return (
     <span className="inline-flex items-baseline gap-2">
