@@ -28,7 +28,10 @@ export function SourceControlHostSettings({
   });
   const [saving, setSaving] = useState(false);
   const formDefinition = { settingsSchema: definition.settings };
-  const hasSaved = Object.values(saved ?? {}).some((value) => value !== "");
+  // The host's own fields, and only those. Its blob also carries the `enabled` switch the row
+  // above owns, and this form must neither count it as saved nor clear it.
+  const formFields = Object.keys(definition.settings.fields);
+  const hasSaved = formFields.some((field) => (saved?.[field] ?? "") !== "");
 
   const save = async (fields: Record<string, unknown>) => {
     setSaving(true);
@@ -53,7 +56,7 @@ export function SourceControlHostSettings({
           const changed = Object.fromEntries(
             Object.entries(fields).filter(([key, value]) => saved?.[key] !== value),
           );
-          const cleared = Object.keys(saved ?? {}).filter((key) => !(key in fields));
+          const cleared = formFields.filter((key) => !(key in fields));
           void save({ ...changed, ...Object.fromEntries(cleared.map((key) => [key, ""])) });
         }}
       />
@@ -62,9 +65,7 @@ export function SourceControlHostSettings({
           <Button
             size="xs"
             variant="outline"
-            onClick={() =>
-              void save(Object.fromEntries(Object.keys(saved ?? {}).map((key) => [key, ""])))
-            }
+            onClick={() => void save(Object.fromEntries(formFields.map((field) => [field, ""])))}
           >
             Remove
           </Button>

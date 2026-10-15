@@ -689,7 +689,7 @@ export const make = Effect.gen(function* () {
   const pullRequestRefreshes = yield* SubscriptionRef.make(0);
   const registry = yield* PullRequestProviderRegistry.PullRequestProviderRegistry;
   const requirementOf: UnavailableRequirementOf = (kind) =>
-    registry.get(kind)?.unavailableRequirement;
+    registry.registered(kind)?.unavailableRequirement;
   const toPullRequestError = toPullRequestErrorWith(requirementOf);
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projects = yield* ProjectService.ProjectService;
@@ -860,67 +860,78 @@ export const make = Effect.gen(function* () {
           Effect.map((remoteHosts) => ({ remoteHosts, projects })),
         ),
       ),
-      Effect.map(({ remoteHosts, projects }) => {
-        const supported: SupportedProject[] = [];
-        const unimplemented = new Map<
-          string,
-          { kind: SourceControlProviderKind; projectCount: number }
-        >();
-        const viewerRoots = new Map<string, string[]>();
-        const seen = new Set<string>();
-        for (const project of projects) {
-          if (filter.projectId !== undefined && project.id !== filter.projectId) continue;
-          if (filter.projectIds !== undefined && !filter.projectIds.includes(project.id)) continue;
-          const identity = project.repositoryIdentity;
-          let kind = identity?.provider;
-          const repository = sourceControlDefinitions.repositorySelector(
-            project.repositoryIdentity,
-          );
-          if (!identity || kind === undefined || repository === null) continue;
-          const recognized = sourceControlDefinitions.recognizeRemote(identity.locator.remoteUrl);
-          const remote =
-            recognized === null
-              ? undefined
-              : remoteHosts.get(remoteHostKey(recognized, identity.locator.remoteUrl));
-          kind = remote?.kind ?? kind;
-          const host = remote?.host ?? sourceControlDefinitions.changeRequestHost(identity, kind);
-          if (filter.host !== undefined && host !== filter.host.toLowerCase()) {
-            continue;
-          }
-          const api = registry.get(kind);
-          if (api !== null) {
-            const roots = viewerRoots.get(host);
-            if (roots === undefined) viewerRoots.set(host, [project.workspaceRoot]);
-            else if (!roots.includes(project.workspaceRoot)) roots.push(project.workspaceRoot);
-          }
-          const repositoryKey =
-            api?.repositoryKey?.({ canonicalKey: identity.canonicalKey }) ?? null;
-          const key = listCursorKey(host, repositoryKey ?? repository);
-          if (seen.has(key)) continue;
-          seen.add(key);
-          if (api === null) {
-            const counted = unimplemented.get(host);
-            if (counted === undefined) unimplemented.set(host, { kind, projectCount: 1 });
-            else counted.projectCount += 1;
-            continue;
-          }
-          supported.push({
-            cursorKey: key,
-            project,
-            api: withRateLimitBackoff(api, host, rateLimits),
-            repository,
-            host,
-            remote:
-              repositoryKey ??
-              sourceControlDefinitions.repositoryKeyFromRemote(`https://${host}/${repository}`),
-            repositoryKey:
-              repositoryKey === null
-                ? null
-                : sourceControlDefinitions.canonicalRepositoryKey(repositoryKey.toLowerCase()),
-          });
-        }
-        return { supported, unimplemented, viewerRoots };
-      }),
+      Effect.flatMap(({ remoteHosts, projects }) =>
+        // `registry.get` answers per host and reads Settings as they are now, so each host this
+        // listing can reach is resolved once rather than once per project.
+        Effect.forEach(
+          registry.kinds,
+          (kind) => registry.get(kind).pipe(Effect.map((api) => [kind, api] as const)),
+          { concurrency: "unbounded" },
+        ).pipe(
+          Effect.map((entries) => {
+            const apis = new Map(entries);
+            const supported: SupportedProject[] = [];
+            const unimplemented = new Map<
+              string,
+              { kind: SourceControlProviderKind; projectCount: number }
+            >();
+            const viewerRoots = new Map<string, string[]>();
+            const seen = new Set<string>();
+            for (const project of projects) {
+              if (filter.projectId !== undefined && project.id !== filter.projectId) continue;
+              if (filter.projectIds !== undefined && !filter.projectIds.includes(project.id)) continue;
+              const identity = project.repositoryIdentity;
+              let kind = identity?.provider;
+              const repository = sourceControlDefinitions.repositorySelector(
+                project.repositoryIdentity,
+              );
+              if (!identity || kind === undefined || repository === null) continue;
+              const recognized = sourceControlDefinitions.recognizeRemote(identity.locator.remoteUrl);
+              const remote =
+                recognized === null
+                  ? undefined
+                  : remoteHosts.get(remoteHostKey(recognized, identity.locator.remoteUrl));
+              kind = remote?.kind ?? kind;
+              const host = remote?.host ?? sourceControlDefinitions.changeRequestHost(identity, kind);
+              if (filter.host !== undefined && host !== filter.host.toLowerCase()) {
+                continue;
+              }
+              const api = apis.get(kind) ?? null;
+              if (api !== null) {
+                const roots = viewerRoots.get(host);
+                if (roots === undefined) viewerRoots.set(host, [project.workspaceRoot]);
+                else if (!roots.includes(project.workspaceRoot)) roots.push(project.workspaceRoot);
+              }
+              const repositoryKey =
+                api?.repositoryKey?.({ canonicalKey: identity.canonicalKey }) ?? null;
+              const key = listCursorKey(host, repositoryKey ?? repository);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              if (api === null) {
+                const counted = unimplemented.get(host);
+                if (counted === undefined) unimplemented.set(host, { kind, projectCount: 1 });
+                else counted.projectCount += 1;
+                continue;
+              }
+              supported.push({
+                cursorKey: key,
+                project,
+                api: withRateLimitBackoff(api, host, rateLimits),
+                repository,
+                host,
+                remote:
+                  repositoryKey ??
+                  sourceControlDefinitions.repositoryKeyFromRemote(`https://${host}/${repository}`),
+                repositoryKey:
+                  repositoryKey === null
+                    ? null
+                    : sourceControlDefinitions.canonicalRepositoryKey(repositoryKey.toLowerCase()),
+              });
+            }
+            return { supported, unimplemented, viewerRoots };
+          }),
+        ),
+      ),
     );
 
   // Azure derives organization from the checkout; require the matching repository.
@@ -968,7 +979,7 @@ export const make = Effect.gen(function* () {
             if (route === undefined) {
               return Effect.gen(function* () {
                 const publicHost = sourceControlDefinitions.findByPublicHost(host);
-                const api = publicHost === undefined ? null : registry.get(publicHost.kind);
+                const api = publicHost === undefined ? null : yield* registry.get(publicHost.kind);
                 if (api?.readsPublicHostWithoutCheckout) {
                   const selected = yield* projects.getShell(ref.projectId).pipe(
                     Effect.mapError(
@@ -1077,29 +1088,37 @@ export const make = Effect.gen(function* () {
         SourceControlProviderKind,
         ReadonlyArray<string>,
       ];
-      const registered = registry.get(kind);
-      if (registered === null) {
-        return Effect.die(new Error(`Missing pull request provider: ${kind}`));
-      }
-      const api = withRateLimitBackoff(registered, host, rateLimits, { viewerAllowsPause: true });
-      return Effect.firstSuccessOf(roots.map((cwd) => api.getViewer({ cwd, host }))).pipe(
-        Effect.map((viewer) => ({
-          host,
-          kind,
-          viewer: viewer as string | null,
-          error: null as PullRequestProviderError | null,
-        })),
-        Effect.tap((result) =>
-          Effect.map(Clock.currentTimeMillis, (at) => viewersByHost.set(host, { at, result })),
-        ),
-        Effect.catch((error) =>
-          Effect.succeed({
-            host,
-            kind,
-            viewer: null,
-            error,
-          }),
-        ),
+      return registry.get(kind).pipe(
+        Effect.flatMap((registered) => {
+          if (registered === null) {
+            return Effect.die(new Error(`Missing pull request provider: ${kind}`));
+          }
+          // Let through a pause: a press the reader is waiting on has to be answered, and the
+          // callers that are not that press are held back at the gate below instead, before they
+          // reach this lookup at all.
+          const api = withRateLimitBackoff(registered, host, rateLimits, {
+            viewerAllowsPause: true,
+          });
+          return Effect.firstSuccessOf(roots.map((cwd) => api.getViewer({ cwd, host }))).pipe(
+            Effect.map((viewer) => ({
+              host,
+              kind,
+              viewer: viewer as string | null,
+              error: null as PullRequestProviderError | null,
+            })),
+            Effect.tap((result) =>
+              Effect.map(Clock.currentTimeMillis, (at) => viewersByHost.set(host, { at, result })),
+            ),
+            Effect.catch((error) =>
+              Effect.succeed({
+                host,
+                kind,
+                viewer: null,
+                error,
+              }),
+            ),
+          );
+        }),
       );
     },
     {
@@ -1533,10 +1552,14 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     const host = input.host.toLowerCase();
     const { supported } = yield* listWorkspaceProjects({ host });
-    const project = supported.find(
-      (candidate) => registry.get(candidate.api.kind)?.getRoutingIdentity !== undefined,
+    const project = Option.getOrUndefined(
+      yield* Effect.findFirst(supported, (candidate) =>
+        registry
+          .get(candidate.api.kind)
+          .pipe(Effect.map((api) => api?.getRoutingIdentity !== undefined)),
+      ),
     );
-    const api = project === undefined ? null : registry.get(project.api.kind);
+    const api = project === undefined ? null : yield* registry.get(project.api.kind);
     if (project === undefined || api?.getRoutingIdentity === undefined) {
       return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
     }
@@ -1559,7 +1582,7 @@ export const make = Effect.gen(function* () {
         detail: "The signed-in account could not be verified before starting the operation.",
       });
     const project = yield* requireProject(input).pipe(Effect.mapError(rejected));
-    const api = registry.get(project.api.kind);
+    const api = yield* registry.get(project.api.kind);
     if (
       api?.withVerifiedCredential === undefined ||
       input.host?.toLowerCase() !== project.host.toLowerCase()
@@ -1580,7 +1603,7 @@ export const make = Effect.gen(function* () {
 
   const routing = Effect.fn("PullRequestService.routing")(function* (input: PullRequestRef) {
     const project = yield* requireProject(input);
-    const api = registry.get(project.api.kind);
+    const api = yield* registry.get(project.api.kind);
     if (api?.getRoutingIdentity === undefined) {
       return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
     }
@@ -3429,7 +3452,11 @@ export const make = Effect.gen(function* () {
   const forgetProviderReads = (scope?: { readonly repository: string; readonly number?: number }) =>
     Effect.forEach(
       registry.kinds,
-      (kind) => registry.get(kind)?.forgetChangeRequestReads?.(scope) ?? Effect.void,
+      (kind) =>
+        Effect.flatMap(
+          registry.get(kind),
+          (provider) => provider?.forgetChangeRequestReads?.(scope) ?? Effect.void,
+        ),
       { discard: true },
     );
 
