@@ -64,6 +64,13 @@ const clientLaunchHarness = (input: {
     }),
     ServerSettings.layerTest({
       fallbackModelSelection: input.fallbackModel ?? null,
+      // Codex starts off in this fork; these tests launch on a Codex instance.
+      providerInstances: {
+        [ProviderInstanceId.make("codex")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+        },
+      },
       ...(input.defaultRuntimeMode === undefined
         ? {}
         : { defaultRuntimeMode: input.defaultRuntimeMode }),

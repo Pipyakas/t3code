@@ -242,14 +242,18 @@ describe("ClientSettings quit confirmation", () => {
 describe("provider enabled defaults", () => {
   it("resolves instance enabled state with explicit false winning", () => {
     const grok = ProviderDriverKind.make("grok");
-    const codex = ProviderDriverKind.make("codex");
+    const opencode = ProviderDriverKind.make("opencode");
+    // Codex starts off in this fork; Claude and OpenCode start on.
+    expect(
+      resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("codex"), config: {} }),
+    ).toBe(false);
     expect(resolveProviderInstanceEnabled({ driver: grok, config: {} })).toBe(false);
-    expect(resolveProviderInstanceEnabled({ driver: codex, config: {} })).toBe(true);
+    expect(resolveProviderInstanceEnabled({ driver: opencode, config: {} })).toBe(true);
     expect(
       resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("ollama"), config: {} }),
     ).toBe(true);
     expect(resolveProviderInstanceEnabled({ driver: grok, enabled: true, config: {} })).toBe(true);
-    expect(resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: {} })).toBe(
+    expect(resolveProviderInstanceEnabled({ driver: opencode, enabled: false, config: {} })).toBe(
       false,
     );
     expect(resolveProviderInstanceEnabled({ driver: grok, config: { enabled: true } })).toBe(true);
@@ -257,7 +261,11 @@ describe("provider enabled defaults", () => {
       resolveProviderInstanceEnabled({ driver: grok, enabled: true, config: { enabled: false } }),
     ).toBe(false);
     expect(
-      resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: { enabled: true } }),
+      resolveProviderInstanceEnabled({
+        driver: opencode,
+        enabled: false,
+        config: { enabled: true },
+      }),
     ).toBe(false);
   });
 });

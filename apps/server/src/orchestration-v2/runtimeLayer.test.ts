@@ -286,7 +286,12 @@ const layerTest = Layer.mergeAll(
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
   Layer.provide(layerServerConfig),
-  Layer.provide(ServerSettings.layerTest()),
+  // Codex starts off in this fork; these tests drive a Codex instance.
+  Layer.provide(
+    ServerSettings.layerTest({
+      providerInstances: { [modelSelection.instanceId]: { driver: "codex", enabled: true } },
+    }),
+  ),
   Layer.provide(layerTestProviderInstanceRegistry),
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerProjectServiceTest),

@@ -55,7 +55,15 @@ function makeHarness(
     layerRegistry,
     { databaseLayer: layerDatabase, runEffectWorker: false },
   );
-  const layerServerSettings = ServerSettings.layerTest({});
+  const layerServerSettings = ServerSettings.layerTest({
+    // Codex starts off in this fork; these tests drive a Codex instance.
+    providerInstances: {
+      [modelSelection.instanceId]: {
+        driver: ProviderDriverKind.make("codex"),
+        enabled: true,
+      },
+    },
+  });
   const layerThreadManagement = ThreadManagement.layer.pipe(
     Layer.provide(layerOrchestrator),
     Layer.provide(layerServerSettings),
