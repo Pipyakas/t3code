@@ -57,6 +57,9 @@ export const DesktopConfig = Config.all({
   ),
   desktopLauncherPath: trimmedString("T3CODE_DESKTOP_LAUNCHER_PATH"),
   appImagePath: trimmedString("APPIMAGE"),
+  // Offline mode: the main process hides Tailscale advertisement and other
+  // hosting entry points (same runtime flag the server reads).
+  offline: optionalBoolean("T3CODE_OFFLINE"),
   disableAutoUpdate: optionalBoolean("T3CODE_DISABLE_AUTO_UPDATE"),
   mockUpdates: optionalBoolean("T3CODE_DESKTOP_MOCK_UPDATES"),
   mockUpdateServerPort: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(

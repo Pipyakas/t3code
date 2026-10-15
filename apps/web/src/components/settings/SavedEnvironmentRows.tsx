@@ -69,6 +69,7 @@ import {
 } from "../ServerUpdateAction";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
 import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
+import { useOfflineMode } from "~/hooks/useOfflineMode";
 
 type SavedBackendListRowProps = {
   environment: EnvironmentPresentation;
@@ -737,6 +738,11 @@ export function CloudLinkRow({
   readonly canReadRelay: boolean;
   readonly canManageRelay: boolean;
 }) {
+  // Offline mode (`T3CODE_OFFLINE=1`): T3 Connect hosting controls (managed
+  // tunnel, publish, hold webhooks) stay hidden — this environment is never
+  // published.
+  const offline = useOfflineMode();
+  if (offline) return null;
   if (!hasCloudPublicConfig()) return null;
   if (!canReadRelay) {
     return (
