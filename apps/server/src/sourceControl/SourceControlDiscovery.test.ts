@@ -120,12 +120,10 @@ it.effect("reports every hosting integration in registry order with its sign-in"
         },
       ],
     );
+    // This fork's discovery lists Git only.
     assert.deepStrictEqual(
       result.versionControlSystems.map((item) => [item.kind, item.status]),
-      [
-        ["git", "available"],
-        ["jj", "available"],
-      ],
+      [["git", "available"]],
     );
   }).pipe(Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery)))),
 );
