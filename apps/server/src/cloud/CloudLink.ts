@@ -74,6 +74,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { offlineMode } from "../offlineMode.ts";
 import * as AgentAwarenessRelay from "../relay/AgentAwarenessRelay.ts";
 import { makeRelayEnvironmentClient } from "../relay/relayEnvironmentClient.ts";
 import { loopbackUrlHostForAddress } from "../startupAccess.ts";
@@ -275,6 +276,7 @@ const INTERNAL_OPERATION_MESSAGES = {
   "persist-preferences": "Could not persist environment cloud preferences.",
   "answer-health": "Could not answer cloud health request.",
   "issue-credential": "Could not issue cloud connection credential.",
+  "hosting-disabled": "T3 Connect hosting is disabled in offline mode (T3CODE_OFFLINE=1).",
 } as const;
 
 /** A link step failed on this machine: storage, signing, or an unexpected relay answer. */
@@ -1750,4 +1752,50 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(CloudLink, make);
+/**
+ * Offline mode (`T3CODE_OFFLINE=1`): this machine never hosts on T3 Connect.
+ * The server provides this stub instead of the real link service, so no path
+ * can link this environment to the relay or open an outbound tunnel. Hosting
+ * operations refuse with a clear message; link-state reads and shutdown
+ * cleanup stay benign so the startup reconcile fiber and the client's status
+ * reads still complete.
+ */
+const hostingDisabledCloudLink = CloudLink.of({
+  linkProof: () => Effect.fail(new CloudLinkInternalError({ operation: "hosting-disabled" })),
+  applyRelayConfig: () =>
+    Effect.fail(new CloudLinkInternalError({ operation: "hosting-disabled" })),
+  linkState: () =>
+    Effect.succeed({
+      linked: false,
+      cloudUserId: null,
+      relayUrl: null,
+      relayIssuer: null,
+      managedTunnelActive: false,
+      publishAgentActivity: false,
+      holdWebhooksWhileOffline: false,
+    }),
+  unlink: () => Effect.succeed({ ok: true, endpointRuntimeStatus: null }),
+  updatePreferences: () =>
+    Effect.fail(new CloudLinkInternalError({ operation: "hosting-disabled" })),
+  answerHealthRequest: () =>
+    Effect.fail(new CloudLinkInternalError({ operation: "hosting-disabled" })),
+  mintCredential: () => Effect.fail(new CloudLinkInternalError({ operation: "hosting-disabled" })),
+  reconcileDesiredLink: () =>
+    Effect.fail(new CloudLinkInternalError({ operation: "hosting-disabled" })),
+  reconcileDesiredLinkIfStillDesired: () => Effect.succeed(null),
+  registerManagedTunnelRecovery: () => Effect.succeed({ status: "not_linked" as const }),
+  recoverManagedTunnel: () => Effect.succeed(false),
+  startManagedTunnelIfOriginConfirmed: () => Effect.succeed(false),
+  releaseManagedTunnelOnShutdown: () => Effect.succeed(false),
+});
+
+const realLayer = Layer.effect(CloudLink, make);
+
+/** In offline mode (`T3CODE_OFFLINE=1`) the hosting-disabled stub replaces the
+ * real link service, so this server never links to the relay or opens an
+ * outbound tunnel. */
+export const layer = Layer.unwrap(
+  Effect.map(offlineMode, (offline) =>
+    offline ? Layer.succeed(CloudLink, hostingDisabledCloudLink) : realLayer,
+  ),
+);
