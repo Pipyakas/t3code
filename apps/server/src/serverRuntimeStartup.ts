@@ -1,11 +1,13 @@
 import {
   CommandId,
   DEFAULT_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_SERVER_SETTINGS,
   type ModelSelection,
   type Project,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -178,9 +180,15 @@ const recordStartupHeartbeat = Effect.gen(function* () {
   yield* analytics.recordOwners(yield* getServerOwners, "server");
 });
 
-const getAutoBootstrapThreadModelSelection = (): ModelSelection => ({
-  instanceId: ProviderInstanceId.make("codex"),
-  model: DEFAULT_MODEL,
+/**
+ * The model selection the auto-bootstrapped welcome thread starts on. It must
+ * name an instance this build enables out of the box, and the model has to be
+ * one that instance actually serves — a Codex model slug on a Claude instance
+ * is not a usable pair.
+ */
+export const getAutoBootstrapThreadModelSelection = (): ModelSelection => ({
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: DEFAULT_MODEL_BY_PROVIDER[ProviderDriverKind.make("claudeAgent")] ?? DEFAULT_MODEL,
 });
 
 interface AutoBootstrapWelcomeTargets {
