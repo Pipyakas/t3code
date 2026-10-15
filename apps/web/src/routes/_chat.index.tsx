@@ -13,6 +13,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useOfflineMode } from "../hooks/useOfflineMode";
 import {
   readProject,
   useAllEnvironmentShellsBootstrapped,
@@ -135,10 +136,15 @@ export const Route = createFileRoute("/_chat/")({
 function HostedStaticOnboardingState() {
   const cloudEnabled = hasCloudPublicConfig();
   const localEnvironmentOff = isLocalEnvironmentDisabled();
+  // Offline mode (`T3CODE_OFFLINE=1`): this machine cannot be published through
+  // T3 Connect, so the copy points at sign-in and pairing only.
+  const offline = useOfflineMode();
   const description = localEnvironmentOff
     ? "The local environment is turned off. Connect a remote environment, or turn the local environment back on in Connections."
     : cloudEnabled
-      ? "Enable T3 Connect on that machine, then open Connections here to sign in with the same account. You can also add the machine using a pairing link."
+      ? offline
+        ? "Open Connections here to sign in with the same account and connect to that machine. You can also add it using a pairing link."
+        : "Enable T3 Connect on that machine, then open Connections here to sign in with the same account. You can also add the machine using a pairing link."
       : "Open Connections and add that machine using its pairing link. This app must be able to reach it.";
 
   return (
