@@ -18,6 +18,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import { offlineMode } from "../offlineMode.ts";
+
 const SSH_PORT = 22;
 
 export class RemoteOpenTargets extends Context.Service<
@@ -31,6 +33,9 @@ export class RemoteOpenTargets extends Context.Service<
 export const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const net = yield* NetService.NetService;
+  // Offline mode (`T3CODE_OFFLINE=1`): read once at layer build so
+  // `resolveTargets` keeps its no-error signature.
+  const offline = yield* offlineMode;
 
   const resolveTargets = Effect.gen(function* () {
     // Check both loopback families: sshd can be bound IPv6-only.
@@ -40,12 +45,15 @@ export const make = Effect.gen(function* () {
       (ipv4, ipv6) => ipv4 || ipv6,
     );
 
-    // Tailscale absent or down is the common case, not an error.
-    const magicDnsName = yield* readTailscaleStatus.pipe(
-      Effect.map((status) => status.magicDnsName),
-      Effect.orElseSucceed(() => null),
-      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-    );
+    // Offline mode (`T3CODE_OFFLINE=1`): skip the MagicDNS probe and never
+    // spawn the `tailscale` CLI; only the mDNS target below is offered.
+    const magicDnsName = offline
+      ? null
+      : yield* readTailscaleStatus.pipe(
+          Effect.map((status) => status.magicDnsName),
+          Effect.orElseSucceed(() => null),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        );
 
     const targets: Array<RemoteOpenTarget> = [];
 
