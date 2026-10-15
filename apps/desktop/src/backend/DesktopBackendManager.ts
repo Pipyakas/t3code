@@ -44,6 +44,8 @@ const BACKEND_READINESS_PATH = "/.well-known/t3/environment";
 // Three restarts without readiness is about 2 s of backoff: past a blip, early enough to help.
 const STARTUP_FAILURE_RESTART_ATTEMPTS = 3;
 const STARTUP_FAILURE_OUTPUT_CHARS = 4_000;
+const ATTACHED_BACKEND_HEALTH_INTERVAL = Duration.seconds(5);
+const ATTACHED_BACKEND_HEALTH_TIMEOUT = Duration.seconds(15);
 const { logWarning: logBackendProcessWarning } =
   DesktopObservability.makeComponentLogger("desktop-backend-process");
 
@@ -74,6 +76,11 @@ export interface DesktopBackendStartConfig extends BackendProcessContext {
   readonly preflightFailure: Option.Option<PreflightFailure>;
   readonly runningDistro?: string;
   readonly wslRuntimeId?: string;
+  // A background service (`t3 service`) already serves this state, so the run
+  // spawns nothing: it uses the service at `httpBaseUrl` and stopping it
+  // leaves the service running. Only `httpBaseUrl` and the bootstrap secret
+  // are meaningful in such a config.
+  readonly attached?: boolean;
 }
 
 export interface PreflightFailure {
@@ -382,6 +389,30 @@ const encodeBootstrapJson = Schema.encodeEffect(Schema.fromJsonString(DesktopBac
 const decodeDesktopTelemetryControlLine = Schema.decodeUnknownEffect(
   Schema.fromJsonString(DesktopTelemetryControlMessage),
 );
+
+// Runs for as long as the background service answers. When it stops (it is
+// restarting, updating or was stopped) the run ends and the restart loop
+// resolves the primary again.
+const watchAttachedBackend = Effect.fn("watchAttachedBackend")(function* (
+  options: RunBackendProcessOptions,
+): Effect.fn.Return<BackendProcessExit, never, HttpClient.HttpClient> {
+  const probe = (timeout: Duration.Duration) => waitForHttpReady({ ...options, timeout });
+  const outcome = yield* probe(options.readinessTimeout ?? DEFAULT_BACKEND_READINESS_TIMEOUT).pipe(
+    Effect.andThen(options.onReady?.() ?? Effect.void),
+    Effect.andThen(
+      Effect.forever(
+        Effect.sleep(ATTACHED_BACKEND_HEALTH_INTERVAL).pipe(
+          Effect.andThen(probe(ATTACHED_BACKEND_HEALTH_TIMEOUT)),
+        ),
+      ),
+    ),
+    Effect.flip,
+  );
+  return {
+    code: Option.none(),
+    reason: `background service at ${options.httpBaseUrl.href} stopped answering: ${outcome.message}`,
+  } satisfies BackendProcessExit;
+});
 
 export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
   options: RunBackendProcessOptions,
@@ -775,7 +806,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
           latest.preflightFailureAttempt === 0 ? latest : { ...latest, preflightFailureAttempt: 0 },
         );
 
-        if (!entryExists) {
+        if (!entryExists && !config.value.attached) {
           yield* scheduleRestart(`missing server entry at ${config.value.entryPath}`);
           return;
         }
@@ -882,7 +913,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
           );
         });
 
-        const program = runBackendProcess({
+        const program = (config.value.attached ? watchAttachedBackend : runBackendProcess)({
           ...config.value,
           desktopTelemetryStream: desktopTelemetryPublisher.encoded,
           desktopBrowserStream: desktopBrowserHost.events,
