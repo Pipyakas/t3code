@@ -3,6 +3,10 @@
 T3 Code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, Azure DevOps, and GitCafe to clone
 and publish repositories, create pull requests, and review changes.
 
+GitHub and GitLab are on out of the box. Every other host starts off: switch one on with its
+toggle in **Settings → Source Control**, and off again the same way. A host that is off stays in
+that list, with its credentials tucked away, so you can turn it back on.
+
 ## Review turn changes
 
 A turn's changed files and diff show only the turn's own work. When a turn pulls, merges, or
