@@ -28,13 +28,24 @@ export type BuiltInDriversEnv =
   | PiDriverEnv
   | MuseDriverEnv;
 
+/**
+ * Ordered list of built-in drivers. Order matters only for tie-breaking in
+ * UI presentation — the registry itself is keyed by `driverKind`, so
+ * iteration order has no functional effect on instance lookup.
+ *
+ * It is also the cross-driver order clients see: hydration synthesizes each
+ * missing default instance in this order and the registry emits it, so
+ * moving a driver here moves it in the settings list, the composer picker,
+ * and the model picker alike. Claude Code and OpenCode lead because they are
+ * the harnesses this build enables out of the box.
+ */
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
-  CodexDriver,
   ClaudeDriver,
+  OpenCodeDriver,
+  CodexDriver,
   CursorDriver,
   GrokDriver,
   FxDriver,
-  OpenCodeDriver,
   AntigravityDriver,
   PiDriver,
   MuseDriver,
