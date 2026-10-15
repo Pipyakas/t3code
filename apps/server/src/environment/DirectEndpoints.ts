@@ -17,6 +17,7 @@ import * as NodeOS from "node:os";
 import { isPrivateNetworkHost, isTailnetHost } from "@t3tools/shared/hostClassification";
 
 import * as ServerConfig from "../config.ts";
+import { offlineMode } from "../offlineMode.ts";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "../startupAccess.ts";
 
 type NetworkInterfacesMap = ReturnType<typeof NodeOS.networkInterfaces>;
@@ -98,6 +99,9 @@ export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
+  // Offline mode (`T3CODE_OFFLINE=1`): read once at layer build so
+  // `resolve` keeps its no-error signature.
+  const offline = yield* offlineMode;
 
   const resolve = Effect.gen(function* () {
     const endpoints = [
@@ -112,7 +116,9 @@ export const make = Effect.gen(function* () {
     // listed once it answers as this server: Serve setup can fail without
     // stopping startup. Anything slower than the probe leaves it out rather
     // than holding back the addresses already found.
-    if (config.tailscaleServeEnabled) {
+    // Offline mode (`T3CODE_OFFLINE=1`): never probe Tailscale Serve or spawn
+    // the tailscale CLI.
+    if (config.tailscaleServeEnabled && !offline) {
       const servedUrl = yield* readTailscaleStatus.pipe(
         Effect.map((status) => status.magicDnsName),
         Effect.flatMap((magicDnsName) => {

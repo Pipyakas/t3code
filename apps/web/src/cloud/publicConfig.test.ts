@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   CloudPublicConfigMissingError,
   hasCloudPublicConfig,
+  offlineFromServerConfig,
   resolveRelayClerkTokenOptions,
 } from "./publicConfig.ts";
 
@@ -116,5 +117,18 @@ describe("hasCloudPublicConfig", () => {
     expect(() => resolveRelayClerkTokenOptions()).toThrowError(
       new CloudPublicConfigMissingError({ key: "T3CODE_CLERK_JWT_TEMPLATE" }),
     );
+  });
+});
+
+describe("offlineFromServerConfig", () => {
+  it("reads a server that sends the offline flag", () => {
+    expect(offlineFromServerConfig({ offline: true })).toBe(true);
+  });
+
+  it("reads online servers, older servers, and missing config as online", () => {
+    expect(offlineFromServerConfig({ offline: false })).toBe(false);
+    expect(offlineFromServerConfig({})).toBe(false);
+    expect(offlineFromServerConfig(null)).toBe(false);
+    expect(offlineFromServerConfig(undefined)).toBe(false);
   });
 });
