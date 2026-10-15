@@ -340,6 +340,7 @@ import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
+  orderProviderInstanceEntries,
   shouldShowInstanceBadge,
   sortProviderInstanceEntries,
 } from "../providerInstances";
@@ -3344,12 +3345,15 @@ export default function ChatView(props: ChatViewProps) {
   ]);
   const providerInstanceEntries = useMemo(
     () =>
-      sortProviderInstanceEntries(
-        applyProviderInstanceSettings(
-          deriveProviderInstanceEntries(providerStatuses),
-          settings,
-          activeProject?.id ?? null,
+      orderProviderInstanceEntries(
+        sortProviderInstanceEntries(
+          applyProviderInstanceSettings(
+            deriveProviderInstanceEntries(providerStatuses),
+            settings,
+            activeProject?.id ?? null,
+          ),
         ),
+        settings.providerOrder ?? [],
       ),
     [providerStatuses, settings, activeProject?.id],
   );
