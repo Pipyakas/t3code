@@ -9,6 +9,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   getOnboardingProviderState,
   resolveOnboardingProviderLoginCommand,
+  resolveOnboardingProviderInstallCommand,
 } from "./providerReadiness.logic";
 
 const readyCodex: ServerProvider = {
@@ -68,6 +69,17 @@ describe("getOnboardingProviderState", () => {
   it("offers installation only when an enabled provider is missing", () => {
     expect(getOnboardingProviderState({ ...readyCodex, installed: false, status: "error" })).toBe(
       "install",
+    );
+  });
+});
+
+describe("resolveOnboardingProviderInstallCommand", () => {
+  it("installs OpenCode with its shell installer, or npm on Windows", () => {
+    expect(resolveOnboardingProviderInstallCommand("opencode", "linux")).toBe(
+      "curl -fsSL https://opencode.ai/install | bash",
+    );
+    expect(resolveOnboardingProviderInstallCommand("opencode", "windows")).toBe(
+      "npm install -g opencode-ai",
     );
   });
 });
@@ -183,5 +195,29 @@ describe("resolveOnboardingProviderLoginCommand", () => {
         "unknown",
       ),
     ).toBe("codex login");
+  });
+
+  it("uses the selected OpenCode instance binary for auth login", () => {
+    const provider: ServerProvider = {
+      ...readyCodex,
+      driver: ProviderDriverKind.make("opencode"),
+      instanceId: ProviderInstanceId.make("opencode_work"),
+    };
+
+    expect(
+      resolveOnboardingProviderLoginCommand(
+        provider,
+        {
+          ...DEFAULT_SERVER_SETTINGS,
+          providerInstances: {
+            [provider.instanceId]: {
+              driver: provider.driver,
+              config: { binaryPath: "C:\\Program Files\\OpenCode\\opencode.exe" },
+            },
+          },
+        },
+        "windows",
+      ),
+    ).toBe("& 'C:\\Program Files\\OpenCode\\opencode.exe' auth login");
   });
 });

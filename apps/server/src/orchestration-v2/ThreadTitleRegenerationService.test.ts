@@ -62,7 +62,15 @@ function makeHarness(
     layerRegistry,
     { databaseLayer: layerDatabase, runEffectWorker: false },
   );
-  const layerServerSettings = ServerSettings.layerTest({});
+  const layerServerSettings = ServerSettings.layerTest({
+    // Codex starts off in this fork; these tests drive a Codex instance.
+    providerInstances: {
+      [modelSelection.instanceId]: {
+        driver: ProviderDriverKind.make("codex"),
+        enabled: true,
+      },
+    },
+  });
   const layerThreadManagement = ThreadManagement.layer.pipe(
     Layer.provide(layerOrchestrator),
     Layer.provide(layerServerSettings),
@@ -634,11 +642,7 @@ describe("ThreadTitleRegenerationService", () => {
           });
           assert.equal(harness.generateThreadTitle.mock.calls.length, 0);
           const fork = yield* threads.getThreadRecords(forkThreadId, []);
-          assert.deepInclude(fork.thread.lastTitleRegeneration, {
-            requestId,
-            status: "failed",
-            message: "This thread has no messages to title yet.",
-          });
+          assert.isNull(fork.thread.titleRegeneration ?? null);
         }).pipe(Effect.provide(harness.layer));
       }),
   );
@@ -742,11 +746,7 @@ describe("ThreadTitleRegenerationService", () => {
         });
         assert.equal(harness.generateThreadTitle.mock.calls.length, 0);
         const updated = yield* threads.getThreadRecords(forkThreadId, []);
-        assert.deepInclude(updated.thread.lastTitleRegeneration, {
-          requestId,
-          status: "failed",
-          message: "This thread has no messages to title yet.",
-        });
+        assert.isNull(updated.thread.titleRegeneration ?? null);
       }).pipe(Effect.provide(harness.layer));
     }),
   );

@@ -1,6 +1,8 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
+  DEFAULT_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
   ProjectId,
   ProviderInstanceId,
@@ -46,6 +48,17 @@ import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
+
+it("auto-bootstraps on an instance this build enables by default", () => {
+  const selection = ServerRuntimeStartup.getAutoBootstrapThreadModelSelection();
+
+  assert.deepEqual(selection, {
+    instanceId: ProviderInstanceId.make("claudeAgent"),
+    model: DEFAULT_MODEL_BY_PROVIDER[ProviderDriverKind.make("claudeAgent")]!,
+  });
+  // A Codex model slug on a Claude instance would be an unlaunchable pair.
+  assert.notStrictEqual(selection.model, DEFAULT_MODEL);
+});
 
 it.effect.each([
   "disabled-codex",
@@ -131,8 +144,12 @@ it.effect.each([
           start: Effect.void,
           getSettings: Effect.succeed({
             ...DEFAULT_SERVER_SETTINGS,
+            // Codex starts off in this fork and is not the default provider, so the Codex
+            // scenarios name it as the default selection explicitly.
             defaultModelSelection:
-              scenario === "disabled-default" ? { instanceId, model: "custom-model" } : null,
+              scenario === "disabled-default"
+                ? { instanceId, model: "custom-model" }
+                : { instanceId, model: "gpt-5.5" },
             providerInstances: {
               [instanceId]: {
                 driver: ProviderDriverKind.make("codex"),
