@@ -13,6 +13,7 @@ import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
+  orderProviderInstanceEntries,
   resolveDefaultProviderModelSelection,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
@@ -63,12 +64,15 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     : undefined;
   const providers = representative?.serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
   const selection = resolveDefaultProviderModelSelection(providers, settings.defaultModelSelection);
-  const entries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(providers),
-      settings,
-      target?.projectId ?? null,
+  const entries = orderProviderInstanceEntries(
+    sortProviderInstanceEntries(
+      applyProviderInstanceSettings(
+        deriveProviderInstanceEntries(providers),
+        settings,
+        target?.projectId ?? null,
+      ),
     ),
+    settings.providerOrder ?? [],
   );
   const modelOptions = getCustomModelOptionsByInstance(
     settings,
