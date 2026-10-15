@@ -5,9 +5,11 @@ import {
   type ServerAuthBootstrapMethod,
 } from "@t3tools/contracts";
 import {
+  BACKGROUND_SERVICE_DESKTOP_SECRET_NAME,
   DESKTOP_BOOTSTRAP_TOKEN_WINDOW_MS,
   isValidDesktopBootstrapToken,
 } from "@t3tools/shared/desktopBootstrapToken";
+import * as Hex from "effect/encoding/Hex";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -20,8 +22,10 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import * as AuthPairingLinks from "../persistence/AuthPairingLinks.ts";
+import * as ServerSecretStore from "./ServerSecretStore.ts";
 
 export interface BootstrapGrant {
   readonly method: ServerAuthBootstrapMethod;
@@ -261,6 +265,17 @@ const PAIRING_TOKEN_PATTERN = new RegExp(
   "i",
 );
 
+const backgroundServiceSecret = Effect.gen(function* () {
+  const launcher = yield* resolveServiceLauncherMode().pipe(
+    Effect.orElseSucceed(() => ({ managed: false })),
+  );
+  if (!launcher.managed) return undefined;
+  const secretStore = yield* ServerSecretStore.ServerSecretStore;
+  return Hex.encode(
+    yield* secretStore.getOrCreateRandom(BACKGROUND_SERVICE_DESKTOP_SECRET_NAME, 32),
+  );
+});
+
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const config = yield* ServerConfig.ServerConfig;
@@ -310,8 +325,12 @@ const make = Effect.gen(function* () {
       id,
     }).pipe(Effect.asVoid);
 
-  // Accept tokens derived from the rotating desktop secret; older desktops send only a token.
-  const desktopBootstrapSecret = config.desktopBootstrapSecret;
+  // A desktop that sends its secret rotates the renderer's token, so accept
+  // whichever token the secret derives for the current window instead of
+  // seeding one fixed token. Older desktops only send the token. A background
+  // service has no desktop to send one, so it keeps its own for a desktop app
+  // on this machine to read and attach with.
+  const desktopBootstrapSecret = config.desktopBootstrapSecret ?? (yield* backgroundServiceSecret);
   const consumeRotatingDesktopToken = (credential: string, nowMs: number) =>
     desktopBootstrapSecret !== undefined &&
     isValidDesktopBootstrapToken(desktopBootstrapSecret, credential, nowMs);
