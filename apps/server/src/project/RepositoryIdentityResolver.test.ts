@@ -169,6 +169,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       expect(recovered?.rootPath).toBe("/repo");
       expect(calls).toEqual([
         ["-C", "/repo/packages/web", "rev-parse", "--show-toplevel"],
+        ["-C", "/repo/packages/web", "rev-parse", "--is-bare-repository"],
         ["-C", "/repo/packages/web", "rev-parse", "--show-toplevel"],
         ["-C", "/repo", "remote", "-v"],
       ]);
@@ -251,6 +252,31 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       expect(normalizeResolvedPath(resolvedIdentityRoot)).toBe(
         normalizeResolvedPath(resolvedRepoRoot),
       );
+    }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
+  );
+
+  it.effect("resolves a bare repository kept beside its linked worktrees", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const container = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-repository-identity-bare-test-",
+      });
+
+      yield* git(container, ["init", "--bare", ".bare"]);
+      yield* fileSystem.writeFileString(path.join(container, ".git"), "gitdir: ./.bare\n");
+      yield* git(container, [
+        "remote",
+        "add",
+        "origin",
+        "git@gitlab.example.com:studio/game/views/dev.git",
+      ]);
+
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      const identity = yield* resolver.resolve(container);
+
+      expect(identity?.canonicalKey).toBe("gitlab.example.com/studio/game/views/dev");
+      expect(identity?.rootPath).toBe(container);
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 
