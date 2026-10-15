@@ -123,7 +123,17 @@ function makeHarness(options: HarnessOptions = {}) {
     layerRegistry,
     { databaseLayer: layerDatabase, runEffectWorker: false },
   );
-  const layerServerSettings = ServerSettings.layerTest(options.serverSettings);
+  // Codex starts off in this fork; these tests drive a Codex instance.
+  const layerServerSettings = ServerSettings.layerTest({
+    ...options.serverSettings,
+    providerInstances: {
+      [modelSelection.instanceId]: {
+        driver: ProviderDriverKind.make("codex"),
+        enabled: true,
+      },
+      ...options.serverSettings?.providerInstances,
+    },
+  });
   const layerReceipts = CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase));
   const layerThreadManagement = ThreadManagement.layer.pipe(
     Layer.provide(layerOrchestrator),
@@ -987,6 +997,8 @@ it.effect("uses the available source control writer for generated worktree branc
           [writerInstanceId]: {
             driver: ProviderDriverKind.make("codex"),
             config: {},
+            // Codex starts off in this fork, so this writer is enabled explicitly.
+            enabled: true,
           },
         },
         sourceControlWriterModelSelection: writerModelSelection,
@@ -2754,7 +2766,12 @@ it.effect.each(
         ],
         serverSettings: {
           providerInstances: {
-            [childInstanceId]: { driver: ProviderDriverKind.make(driver), config: {} },
+            // Codex starts off in this fork, so the child instance is enabled explicitly.
+            [childInstanceId]: {
+              driver: ProviderDriverKind.make(driver),
+              config: {},
+              enabled: true,
+            },
           },
         },
         hasCommit: () => Effect.succeed(true),
