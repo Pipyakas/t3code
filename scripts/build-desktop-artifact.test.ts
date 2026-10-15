@@ -399,7 +399,16 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
 
-      assert.isNull(local.publish);
+      // This fork's builds default to its own release feed, so a local build gets that
+      // explicit feed instead of one electron-builder would infer from a GitHub token.
+      assert.deepStrictEqual(local.publish, [
+        {
+          provider: "github",
+          owner: "Pipyakas",
+          repo: "t3code",
+          releaseType: "release",
+        },
+      ]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
