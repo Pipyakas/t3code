@@ -19,6 +19,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isTailnetHost } from "@t3tools/shared/hostClassification";
 
 import * as ServerConfig from "../config.ts";
+import { offlineMode } from "../offlineMode.ts";
 import {
   formatHostForUrl,
   isLoopbackHost,
@@ -129,6 +130,9 @@ export const make = Effect.gen(function* () {
     ? yield* Effect.cached(probeCloudMetadata)
     : Effect.succeed(false);
   yield* Effect.forkDetach(onCloudVm);
+  // Offline mode (`T3CODE_OFFLINE=1`): read once at layer build so
+  // `resolve` keeps its no-error signature.
+  const offline = yield* offlineMode;
 
   const servedEndpoint = yield* Ref.make<Option.Option<string>>(Option.none());
   const resolveAvailable = Effect.fn("DirectEndpoints.resolveAvailable")(function* () {
@@ -148,7 +152,8 @@ export const make = Effect.gen(function* () {
 
   const resolve = Effect.gen(function* () {
     // Serve setup can fail without stopping startup; advertise only after it answers as this server.
-    if (config.tailscaleServeEnabled) {
+    // Offline mode (`T3CODE_OFFLINE=1`): never probe Tailscale Serve or spawn the tailscale CLI.
+    if (config.tailscaleServeEnabled && !offline) {
       const servedUrl = yield* readTailscaleStatus.pipe(
         Effect.map((status) => status.magicDnsName),
         Effect.flatMap((magicDnsName) => {

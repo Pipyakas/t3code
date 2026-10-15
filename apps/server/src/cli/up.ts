@@ -18,6 +18,7 @@ import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import * as ServerConfig from "../config.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import { offlineMode } from "../offlineMode.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 import {
   connectSubcommands,
@@ -69,9 +70,10 @@ const readSetup = Effect.fn("cli.up.read_setup")(function* () {
     .pipe(Config.option)
     .parse(ConfigProvider.fromEnv({ env: entries }));
   const secrets = yield* ServerSecretStore.ServerSecretStore;
-  const connectRevoked =
-    hasCloudPublicConfig && Option.isSome(yield* secrets.get(CLOUD_LINK_REVOKED));
-  const connect = hasCloudPublicConfig
+  // Offline machines never host on T3 Connect, so they get no T3 Connect route.
+  const connectAvailable = hasCloudPublicConfig && !(yield* offlineMode);
+  const connectRevoked = connectAvailable && Option.isSome(yield* secrets.get(CLOUD_LINK_REVOKED));
+  const connect = connectAvailable
     ? connectEnabled({
         cliDesired: yield* CliState.readCliDesiredCloudLink,
         cliMode: yield* CliState.readCliDesiredLinkMode,
@@ -206,7 +208,9 @@ const setUp = Effect.fn("cli.up")(function* (flags: {
   if (before.connect === null && Option.getOrElse(flags.connect, () => false)) {
     return yield* new CliError.UserError({
       cause: "connect",
-      userMessage: "T3 Connect is unavailable in this build.",
+      userMessage: (yield* offlineMode)
+        ? "T3 Connect hosting is disabled in offline mode (T3CODE_OFFLINE=1)."
+        : "T3 Connect is unavailable in this build.",
     });
   }
 
