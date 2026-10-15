@@ -2,6 +2,7 @@ import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   type Project as ProjectRecord,
   type ModelSelection,
@@ -51,6 +52,13 @@ const clientLaunchHarness = (input: {
       ...(input.overrideModel === undefined
         ? {}
         : {
+            // Codex starts off in this fork, so the Codex override under test is enabled.
+            providerInstances: {
+              [ProviderInstanceId.make("codex")]: {
+                driver: ProviderDriverKind.make("codex"),
+                enabled: true,
+              },
+            },
             projectSettingsFolded: true,
             projectSettingsOverrides: {
               [projectId]: { defaultModelSelection: input.overrideModel },
