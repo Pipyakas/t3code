@@ -6,9 +6,13 @@ import type {
   SourceControlDiscoveryResult,
   SourceControlProviderAuth,
   SourceControlProviderDiscoveryItem,
+  SourceControlProviderKind,
   VcsDriverKind,
   VcsDiscoveryItem,
 } from "@t3tools/contracts";
+import { isSourceControlHostEnabled } from "@t3tools/contracts";
+
+import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { cn } from "../../lib/utils";
@@ -29,7 +33,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
-import { GitIcon, JujutsuIcon, type Icon } from "../Icons";
+import { GitIcon, type Icon } from "../Icons";
 import { SourceControlHostSettings } from "./SourceControlHostSettings";
 import { SourceControlAccountSettings } from "./SourceControlAccountSettings";
 import { SourceControlAppSignInSettings } from "./SourceControlAppSignInSettings";
@@ -54,7 +58,6 @@ const EMPTY_DISCOVERY_RESULT: SourceControlDiscoveryResult = {
 
 const VCS_ICONS: Partial<Record<VcsDriverKind, Icon>> = {
   git: GitIcon,
-  jj: JujutsuIcon,
 };
 
 const SOURCE_CONTROL_SKELETON_ROWS = ["primary", "secondary"] as const;
@@ -205,6 +208,32 @@ function itemSummary({
   return <span>Available</span>;
 }
 
+/**
+ * Whether this environment talks to one source control host. Only this field is written; the
+ * server merges it into the host's other saved settings, so credentials survive the switch.
+ */
+function SourceControlHostSwitch({
+  kind,
+  label,
+}: {
+  readonly kind: SourceControlProviderKind;
+  readonly label: string;
+}) {
+  const enabled = useScopedSettings((settings) =>
+    isSourceControlHostEnabled(kind, settings.sourceControlHosts),
+  );
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <Switch
+      checked={enabled}
+      aria-label={`${label} host`}
+      onCheckedChange={(next) =>
+        updateSettings({ sourceControlHosts: { [kind]: { enabled: next } } })
+      }
+    />
+  );
+}
+
 function DiscoveryItemRow({
   item,
   children,
@@ -220,7 +249,10 @@ function DiscoveryItemRow({
   const authStatus = auth ? authPresentation(auth) : null;
   const authAccount = auth ? optionLabel(auth.account) : null;
   const [isExpanded, setIsExpanded] = useState(false);
-  const hasDetails = children !== undefined;
+  // A host the environment has switched off keeps its row so it can be switched back on, but
+  // its credentials and settings stay out of the way until then.
+  const hostEnabled = isProviderDiscoveryItem(item) ? item.enabled !== false : true;
+  const hasDetails = children !== undefined && hostEnabled;
   const searchTargetId = useSettingsSearchTargetId();
   const [seenSearchTargetId, setSeenSearchTargetId] = useState<string | null>(null);
   const targetsThisRow = searchTargetId === sourceControlHostSettingsSearchId(item.kind);
@@ -273,7 +305,11 @@ function DiscoveryItemRow({
               </Button>
             ) : null}
             {!isVcsNotReady(item) ? (
-              <Switch checked={enabled} disabled aria-label={`${item.label} availability`} />
+              isProviderDiscoveryItem(item) ? (
+                <SourceControlHostSwitch kind={item.kind} label={item.label} />
+              ) : (
+                <Switch checked={enabled} disabled aria-label={`${item.label} availability`} />
+              )
             ) : null}
           </div>
         </div>
