@@ -45,6 +45,7 @@ import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
+  useIgnoredVersionUpdateEnvironments,
 } from "~/versionSkew";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { isElectron } from "~/env";
@@ -169,6 +170,8 @@ export function SavedBackendListRow({
     },
   });
   const versionMismatch = resolveServerConfigVersionMismatch(environment.serverConfig);
+  const [ignoredVersionUpdates, setIgnoredVersionUpdates] = useIgnoredVersionUpdateEnvironments();
+  const versionUpdatesIgnored = ignoredVersionUpdates.includes(environmentId);
   const serverUpdateState = useAtomValue(serverEnvironment.updateStateAtom(environmentId));
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
@@ -419,6 +422,17 @@ export function SavedBackendListRow({
           <MenuItem onClick={() => setRoutesOpen((open) => !open)}>
             <RouteIcon />
             {routesOpen ? "Hide routes" : "Routes"}
+          </MenuItem>
+          <MenuItem
+            onClick={() =>
+              setIgnoredVersionUpdates((ids) =>
+                ids.includes(environmentId)
+                  ? ids.filter((id) => id !== environmentId)
+                  : [...ids, environmentId],
+              )
+            }
+          >
+            {versionUpdatesIgnored ? "Show version updates" : "Ignore version updates"}
           </MenuItem>
           {mcpUrl ? (
             <MenuItem onClick={() => copyMcpUrl(mcpUrl, { url: mcpUrl })}>Copy MCP URL</MenuItem>
