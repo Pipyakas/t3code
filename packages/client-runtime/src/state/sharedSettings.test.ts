@@ -16,6 +16,13 @@ const primaryId = EnvironmentId.make("env-primary");
 const laptopId = EnvironmentId.make("env-laptop");
 const boxId = EnvironmentId.make("env-box");
 const restartCapabilities = { threadRestartContinuation: true };
+// Codex starts off in this fork; these cases share a Codex text generation model.
+const CODEX_ENABLED_SETTINGS = {
+  ...DEFAULT_SERVER_SETTINGS,
+  providerInstances: {
+    [ProviderInstanceId.make("codex")]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+  },
+};
 
 describe("filterSharedServerPatch", () => {
   it.each([true, false])(
