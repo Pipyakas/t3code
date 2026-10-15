@@ -141,19 +141,23 @@ const resolveRepositoryIdentityCacheKey = Effect.fn("RepositoryIdentityResolver.
 
     // git is a real executable on every platform — no cmd.exe shell mode, which
     // would split paths containing spaces during cmd's re-tokenization.
-    const topLevelResult = yield* processRunner
-      .run({
-        command: "git",
-        args: ["-C", cwd, "rev-parse", "--show-toplevel"],
-        timeoutBehavior: "timedOutResult",
-      })
-      .pipe(Effect.option);
-    if (topLevelResult._tag === "None" || topLevelResult.value.code !== 0) {
-      return null;
-    }
+    const revParse = (flag: string) =>
+      processRunner
+        .run({
+          command: "git",
+          args: ["-C", cwd, "rev-parse", flag],
+          timeoutBehavior: "timedOutResult",
+        })
+        .pipe(
+          Effect.option,
+          Effect.map((result) =>
+            result._tag === "Some" && result.value.code === 0 ? result.value.stdout.trim() : "",
+          ),
+        );
 
-    const candidate = topLevelResult.value.stdout.trim();
-    return candidate.length > 0 ? candidate : null;
+    const topLevel = yield* revParse("--show-toplevel");
+    if (topLevel.length > 0) return topLevel;
+    return (yield* revParse("--is-bare-repository")) === "true" ? cwd : null;
   },
 );
 
