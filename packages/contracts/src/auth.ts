@@ -213,6 +213,8 @@ export const AuthClientPresentationMetadata = Schema.Struct({
   webDeployment: Schema.optionalKey(ClientWebDeployment),
   browser: Schema.optionalKey(TrimmedNonEmptyString),
   appVersion: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Fork builds only: the upstream release this client is based on. */
+  upstreamVersion: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type AuthClientPresentationMetadata = typeof AuthClientPresentationMetadata.Type;
 
