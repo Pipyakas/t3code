@@ -24,6 +24,7 @@ import {
 } from "./ClaudeModelManifest.ts";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
 import { BUNDLED_MODEL_MANIFEST, resolveProviderCatalog } from "./ModelManifest.ts";
+import { CLAUDE_EFFORT_LEVELS } from "./claudeGatewayModels.ts";
 
 const CLAUDE = ProviderDriverKind.make("claudeAgent");
 const EMPTY_CAPABILITIES: ModelCapabilities = { optionDescriptors: [] };
@@ -128,10 +129,14 @@ function stripClaudeModelSuffix(value: string): string {
   return value.replace(/\[[^\]]*\]$/, "").trim();
 }
 
-/** Option descriptors for a model from what Claude Code reports it supports. */
+/**
+ * Option descriptors for a model from what Claude Code reports it supports.
+ * The default is the highest level, since that is what a gateway runs a
+ * discovered model at when it is not told otherwise.
+ */
 function claudeReportedModelCapabilities(info: ClaudeModelInfo): ModelCapabilities {
   const efforts = info.supportsEffort ? (info.supportedEffortLevels ?? []) : [];
-  const defaultEffort = efforts.includes("high") ? "high" : undefined;
+  const defaultEffort = CLAUDE_EFFORT_LEVELS.findLast((level) => efforts.includes(level));
   return {
     optionDescriptors: [
       ...(efforts.length
