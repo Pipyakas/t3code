@@ -10,6 +10,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   globalIdleCompaction,
   idleCompactionPatch,
+  isSourceControlHostEnabled,
   requiredScopesForProjectMutation,
   resolveIdleCompaction,
   resolveProjectProviderInstanceEnabled,
@@ -187,6 +188,33 @@ describe("resolveIdleCompaction", () => {
     expect(idleCompactionPatch({ compactIdleThreads: false }, "beforeCacheExpires")).toEqual({
       compactIdleThreads: true,
     });
+  });
+});
+
+describe("source control host enablement", () => {
+  it("starts GitHub and GitLab on and every other host off", () => {
+    expect(isSourceControlHostEnabled("github", undefined)).toBe(true);
+    expect(isSourceControlHostEnabled("gitlab", undefined)).toBe(true);
+    expect(isSourceControlHostEnabled("github", {})).toBe(true);
+    expect(isSourceControlHostEnabled("forgejo", {})).toBe(false);
+    expect(isSourceControlHostEnabled("bitbucket", {})).toBe(false);
+    expect(isSourceControlHostEnabled("gitcafe", {})).toBe(false);
+    expect(isSourceControlHostEnabled("azuredevops", {})).toBe(false);
+  });
+
+  it("respects the flag a host has been given, in either direction", () => {
+    const hosts = { forgejo: { enabled: true }, github: { enabled: false } };
+    expect(isSourceControlHostEnabled("forgejo", hosts)).toBe(true);
+    expect(isSourceControlHostEnabled("github", hosts)).toBe(false);
+    expect(isSourceControlHostEnabled("gitlab", hosts)).toBe(true);
+  });
+
+  it("keeps a host's other saved settings and takes the default when the flag is unreadable", () => {
+    expect(
+      isSourceControlHostEnabled("forgejo", { forgejo: { baseUrl: "https://codeberg.org" } }),
+    ).toBe(false);
+    expect(isSourceControlHostEnabled("github", { github: { enabled: null } })).toBe(true);
+    expect(isSourceControlHostEnabled("github", { github: { enabled: "no" } })).toBe(true);
   });
 });
 
