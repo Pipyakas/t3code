@@ -3,6 +3,7 @@ import {
   EnvironmentAuthorizationError,
   EnvironmentId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   type ServerSettings,
 } from "@t3tools/contracts";
@@ -736,6 +737,8 @@ describe("model selection patches at project scope", () => {
   };
   const customized = environment("Server", {
     settings: {
+      // Codex starts off in this fork, so the instance these overrides name is enabled explicitly.
+      providerInstances: { [codex]: { driver: ProviderDriverKind.make("codex"), enabled: true } },
       projectSettingsOverrides: {
         [projectId]: {
           defaultModelSelection: saved,
