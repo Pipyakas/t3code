@@ -852,6 +852,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
               driver: ProviderDriverKind.make("claudeAgent"),
               enabled: false,
             },
+            // OpenCode outranks Codex in the fallback preference order and
+            // starts enabled, so it has to be off for Codex to be the fallback.
+            [ProviderInstanceId.make("opencode")]: {
+              driver: ProviderDriverKind.make("opencode"),
+              enabled: false,
+            },
             [fallbackInstanceId]: {
               driver: ProviderDriverKind.make("codex"),
               enabled: true,
