@@ -435,6 +435,29 @@ describe("DesktopServerExposure", () => {
     ),
   );
 
+  it.effect(
+    "in offline mode never advertises Tailscale endpoints, even when the tailnet is enumerated first",
+    () =>
+      withHarness(
+        { ...tailnetNetworkInterfaces, ...lanNetworkInterfaces },
+        Effect.gen(function* () {
+          const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+          yield* serverExposure.configureFromSettings({ port: 4173 });
+          yield* serverExposure.setMode("network-accessible");
+
+          const endpoints = yield* serverExposure.getAdvertisedEndpoints;
+          // Offline mode: the tailscale CLI is never spawned and no tailscale
+          // endpoint is advertised; the LAN address stays.
+          assert.deepEqual(
+            endpoints.map((endpoint) => endpoint.httpBaseUrl),
+            ["http://127.0.0.1:4173/", "http://192.168.1.20:4173/"],
+          );
+        }),
+        { T3CODE_OFFLINE: "1" },
+        layerDieOnSpawn(),
+      ),
+  );
+
   it.effect("keeps Tailscale-only hosts network-accessible", () =>
     withHarness(
       tailnetNetworkInterfaces,
@@ -459,6 +482,33 @@ describe("DesktopServerExposure", () => {
         );
       }),
     ),
+  );
+
+  it.effect(
+    "in offline mode keeps a Tailscale-only host network-accessible but advertises only loopback",
+    () =>
+      withHarness(
+        tailnetNetworkInterfaces,
+        Effect.gen(function* () {
+          const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+          const settings = yield* DesktopAppSettings.DesktopAppSettings;
+          yield* settings.setServerExposureMode("network-accessible");
+
+          const state = yield* serverExposure.configureFromSettings({ port: 4173 });
+          // Offline mode hides the Tailscale advertisement but not the
+          // network-accessible bind decision itself.
+          assert.equal(state.mode, "network-accessible");
+          assert.equal((yield* serverExposure.backendConfig).bindHost, "0.0.0.0");
+
+          const endpoints = yield* serverExposure.getAdvertisedEndpoints;
+          assert.deepEqual(
+            endpoints.map((endpoint) => [endpoint.reachability, endpoint.httpBaseUrl]),
+            [["loopback", "http://127.0.0.1:4173/"]],
+          );
+        }),
+        { T3CODE_OFFLINE: "1" },
+        layerDieOnSpawn(),
+      ),
   );
 
   it.effect("does not spawn the tailscale CLI while server exposure is local-only", () =>
