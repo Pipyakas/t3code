@@ -41,6 +41,7 @@ import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
+  orderProviderInstanceEntries,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { usePrimaryCloudLinkState } from "../../cloud/primaryCloudLinkState";
@@ -824,12 +825,15 @@ function ScheduledTaskEditorDialog({
   // project's effective enablement, not just the machine's.
   const instanceEntries = useMemo(
     () =>
-      sortProviderInstanceEntries(
-        applyProviderInstanceSettings(
-          deriveProviderInstanceEntries(providers),
-          settings,
-          selectedProject?.id ?? null,
+      orderProviderInstanceEntries(
+        sortProviderInstanceEntries(
+          applyProviderInstanceSettings(
+            deriveProviderInstanceEntries(providers),
+            settings,
+            selectedProject?.id ?? null,
+          ),
         ),
+        settings.providerOrder ?? [],
       ),
     [providers, settings, selectedProject?.id],
   );

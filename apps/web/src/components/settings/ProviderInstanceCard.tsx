@@ -9,12 +9,15 @@ import {
   CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
+  GripVerticalIcon,
   LayersIcon,
   PlusIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
 import { Lock as LockGlyph, LockOpen } from "lucide";
+import { CSS } from "@dnd-kit/utilities";
+import type { useSortable } from "@dnd-kit/sortable";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
@@ -591,6 +594,22 @@ interface ProjectOverrideControl {
   readonly onReset: () => void;
 }
 
+/**
+ * The dnd-kit wiring a sortable provider list hands its rows. Supplied only
+ * by the settings list's reorder wrapper; without it the row renders no drag
+ * handle and is a plain selectable row.
+ */
+export type ProviderRowSortableProps = Pick<
+  ReturnType<typeof useSortable>,
+  | "attributes"
+  | "listeners"
+  | "setNodeRef"
+  | "setActivatorNodeRef"
+  | "transform"
+  | "transition"
+  | "isDragging"
+>;
+
 interface ProviderInstanceCardProps {
   readonly instanceId: ProviderInstanceId;
   readonly instance: ProviderInstanceConfig;
@@ -599,6 +618,8 @@ interface ProviderInstanceCardProps {
   readonly mode: "list" | "editor";
   readonly selected?: boolean | undefined;
   readonly onSelect?: (() => void) | undefined;
+  /** Drag-to-reorder wiring for the list row; never set for the editor. */
+  readonly sortable?: ProviderRowSortableProps | undefined;
   readonly readOnly?: boolean | undefined;
   readonly canWriteSettings?: boolean;
   readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
@@ -677,6 +698,7 @@ export function ProviderInstanceCard({
   mode,
   selected = false,
   onSelect,
+  sortable,
   readOnly = false,
   canWriteSettings = true,
   onUpdate,
@@ -1044,10 +1066,20 @@ export function ProviderInstanceCard({
   if (mode === "list") {
     return (
       <div
+        ref={sortable?.setNodeRef}
         data-slot="settings-row"
+        style={
+          sortable === undefined
+            ? undefined
+            : {
+                transform: CSS.Translate.toString(sortable.transform),
+                transition: sortable.transition,
+              }
+        }
         className={cn(
           "group flex min-h-18 items-center gap-3 px-3 py-3 transition-colors sm:px-4",
           selected ? "bg-muted/45" : "hover:bg-muted/25",
+          sortable?.isDragging && "relative z-10 shadow-md",
         )}
       >
         <div
@@ -1098,6 +1130,21 @@ export function ProviderInstanceCard({
             </span>
           </span>
         </div>
+        {sortable?.listeners !== undefined ? (
+          // Its own element above the row's click-to-select overlay, so a
+          // drag never turns into a selection and the overlay still owns
+          // every other click on the row.
+          <button
+            type="button"
+            ref={sortable.setActivatorNodeRef}
+            {...sortable.attributes}
+            {...sortable.listeners}
+            aria-label={`Reorder ${displayName}`}
+            className="relative z-10 flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/70 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:cursor-grabbing"
+          >
+            <GripVerticalIcon className="size-3.5" />
+          </button>
+        ) : null}
         <span className="flex h-5 shrink-0 items-center gap-1">
           {projectOverride?.value !== undefined ? (
             <span className="flex items-center">
