@@ -526,6 +526,104 @@ it.effect.each([
   }).pipe(Effect.provide(layer)),
 );
 
+it.effect.each([
+  { name: "SQLite", layer: layerTest },
+  { name: "memory", layer: ProjectionStore.layerMemory },
+])("recovers a follow-up task no child run references with $name projections", ({ layer }) =>
+  Effect.gen(function* () {
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const now = yield* DateTime.now;
+    const parent = yield* createThread("orphan-parent");
+    const openChild = yield* createThread("orphan-open", {
+      lineage: { parentThreadId: parent, relationshipToParent: "subagent", rootThreadId: parent },
+      forkedFrom: { type: "node", nodeId: NodeId.make("node:original") },
+    });
+    const settledChild = yield* createThread("orphan-settled", {
+      lineage: { parentThreadId: parent, relationshipToParent: "subagent", rootThreadId: parent },
+      forkedFrom: { type: "node", nodeId: NodeId.make("node:original") },
+    });
+    // A follow-up opened by messaging an existing child owns no delegatedTaskId,
+    // and the original already transferred its result, so the two older branches
+    // cannot see it. Left alone it holds its parent thread forever.
+    for (const child of [openChild, settledChild]) {
+      const originalRunId = yield* createRun(child, "completed");
+      yield* projections.apply({
+        id: EventId.make(`event:orphan-original-result:${child}`),
+        type: "context-transfer.created",
+        threadId: parent,
+        occurredAt: now,
+        payload: {
+          id: ContextTransferId.make(`transfer:orphan-original:${child}`),
+          type: "subagent_result",
+          sourceThreadId: child,
+          targetThreadId: parent,
+          sourcePoint: { threadId: child, runId: originalRunId },
+          basePoint: null,
+          sourceProviderInstanceId: providerInstanceId,
+          targetProviderInstanceId: providerInstanceId,
+          targetRunId: null,
+          status: "pending",
+          resolution: null,
+          createdBy: "system",
+          error: null,
+          createdAt: now,
+          updatedAt: now,
+          consumedAt: null,
+        },
+      });
+    }
+    const task = (id: string, child: ThreadId) => ({
+      id: NodeId.make(id),
+      threadId: parent,
+      runId: null,
+      parentNodeId: NodeId.make("node:parent"),
+      origin: "app_owned" as const,
+      createdBy: "agent" as const,
+      driver,
+      providerInstanceId,
+      providerThreadId: null,
+      childThreadId: child,
+      nativeTaskRef: null,
+      prompt: "Continue the child.",
+      title: null,
+      model: null,
+      status: "running" as const,
+      result: null,
+      startedAt: now,
+      completedAt: null,
+      updatedAt: now,
+    });
+    const openTask = task("node:orphan-open", openChild);
+    yield* projections.apply({
+      id: EventId.make("event:orphan-task-open"),
+      type: "subagent.updated",
+      threadId: parent,
+      occurredAt: now,
+      payload: openTask,
+    });
+    // Its own turn is still going, so the thread is live work, not a repair.
+    yield* createRun(openChild, "running", { ordinal: 2 });
+    assert.deepEqual(yield* projections.getRecoveryThreadIds("subagent-results"), []);
+    const settledTask = task("node:orphan-settled", settledChild);
+    yield* projections.apply({
+      id: EventId.make("event:orphan-task-settled"),
+      type: "subagent.updated",
+      threadId: parent,
+      occurredAt: now,
+      payload: settledTask,
+    });
+    assert.deepEqual(yield* projections.getRecoveryThreadIds("subagent-results"), [settledChild]);
+    yield* projections.apply({
+      id: EventId.make("event:orphan-task-settled-done"),
+      type: "subagent.updated",
+      threadId: parent,
+      occurredAt: now,
+      payload: { ...settledTask, status: "completed", result: "Done.", completedAt: now },
+    });
+    assert.deepEqual(yield* projections.getRecoveryThreadIds("subagent-results"), []);
+  }).pipe(Effect.provide(layer)),
+);
+
 it.effect("includes shared sessions and provider-owned background rosters in recovery", () =>
   Effect.gen(function* () {
     const projections = yield* ProjectionStore.ProjectionStoreV2;
