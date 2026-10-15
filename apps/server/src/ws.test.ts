@@ -995,6 +995,7 @@ it.effect.each([
             yield* ServerBrowser.ServerBrowser,
             () => Effect.void,
             { secretReferences: true },
+            false,
           ).pipe(Layer.provide(configRpcServices)),
         ),
       );
@@ -1216,6 +1217,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
           yield* ServerBrowser.ServerBrowser,
           () => Effect.void,
           { secretReferences: true },
+          false,
         ).pipe(Layer.provide(configRpcServices)),
       ),
     );
@@ -1326,6 +1328,7 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
           yield* ServerBrowser.ServerBrowser,
           () => Effect.void,
           { secretReferences: true },
+          false,
         ).pipe(
           Layer.provide(services),
           Layer.merge(RpcAuthorization.layer([AuthSourceControlWriteScope])),
