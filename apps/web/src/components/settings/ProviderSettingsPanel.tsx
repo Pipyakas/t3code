@@ -168,6 +168,9 @@ const PROVIDER_SETTINGS = providerClients.definitions.map((definition) => ({
 
 // Distance keeps a plain press from starting a drag; the handle owns the
 // pointer anyway, so selection clicks on the row are never contested.
+// Built-ins that start off and can be dropped from Settings > Providers.
+const REMOVABLE_BUILT_IN_DRIVERS: ReadonlySet<string> = new Set(["grok", "cursor"]);
+
 const PROVIDER_ROW_SENSORS = [
   { sensor: PointerSensor, options: { activationConstraint: { distance: 4 } } },
   { sensor: KeyboardSensor, options: { coordinateGetter: sortableKeyboardCoordinates } },
@@ -1403,6 +1406,14 @@ function ProviderInstanceRow({
         onReset: () => actions.writeProjectOverride(instanceId, undefined),
       }
     : undefined;
+  // Grok and Cursor start off and leave the list once their saved settings
+  // are cleared, so removing one switched off is that reset. Providers in
+  // use, and those the list always shows, are never offered.
+  const isRemovableDefault =
+    isDefault &&
+    isDirty &&
+    REMOVABLE_BUILT_IN_DRIVERS.has(driver) &&
+    !resolveProviderInstanceEnabled(instance);
   const codexSetupMode = driver === "codex" ? readCodexSetupMode(instance.config) : null;
   const recommendedVersion = liveProvider?.compatibilityAdvisory?.recommendedVersion;
   const canInstallRecommended =
@@ -1498,12 +1509,12 @@ function ProviderInstanceRow({
       }
       onUpdate={(next) => actions.updateInstance(instanceId, instance, next)}
       onDelete={
-        mode === "editor" && !isDefault
+        mode === "editor" && (!isDefault || isRemovableDefault)
           ? () => actions.deleteInstance(instanceId, instance)
           : undefined
       }
       headerAction={
-        mode === "editor" && isDefault && isDirty ? (
+        mode === "editor" && isDefault && isDirty && !isRemovableDefault ? (
           <SettingResetButton
             label={`${resetLabel} provider settings`}
             onClick={() => actions.resetDefaultInstance(driver)}
