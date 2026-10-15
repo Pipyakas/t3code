@@ -16,6 +16,7 @@ import {
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
+  orderProviderInstanceEntries,
   resolveDefaultProviderModelSelection,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
@@ -71,12 +72,15 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const selection = storedSelection
     ? resolveEffectiveDefaultModelSelection(settings, providers, storedSelection)
     : null;
-  const entries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(providers),
-      settings,
-      target?.projectId ?? null,
+  const entries = orderProviderInstanceEntries(
+    sortProviderInstanceEntries(
+      applyProviderInstanceSettings(
+        deriveProviderInstanceEntries(providers),
+        settings,
+        target?.projectId ?? null,
+      ),
     ),
+    settings.providerOrder ?? [],
   );
   const modelOptions = getCustomModelOptionsByInstance(
     settings,

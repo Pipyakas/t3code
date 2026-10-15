@@ -294,6 +294,7 @@ import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
+  orderProviderInstanceEntries,
   shouldShowInstanceBadge,
   sortProviderInstanceEntries,
 } from "../providerInstances";
@@ -2463,12 +2464,15 @@ export default function ChatView(props: ChatViewProps) {
     if (autoBalanceUpdateBanner) items.push(autoBalanceUpdateBanner);
     return items;
   })() as ComposerBannerStackItem[];
-  const providerInstanceEntries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(providerStatuses),
-      settings,
-      activeProject?.id ?? null,
+  const providerInstanceEntries = orderProviderInstanceEntries(
+    sortProviderInstanceEntries(
+      applyProviderInstanceSettings(
+        deriveProviderInstanceEntries(providerStatuses),
+        settings,
+        activeProject?.id ?? null,
+      ),
     ),
+    settings.providerOrder ?? [],
   );
   const activeThreadModelInstanceId = activeThread?.modelSelection.instanceId;
   const { selectedProviderEntry, requestedDriverKind } = resolveComposerProviderSelection({
