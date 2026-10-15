@@ -16,11 +16,15 @@ import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as ServerConfig from "./config.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 
-it("uses the canonical Codex model for auto-bootstrap", () => {
-  assert.deepEqual(ServerRuntimeStartup.getAutoBootstrapThreadModelSelection(), {
-    instanceId: ProviderInstanceId.make("codex"),
-    model: DEFAULT_MODEL,
+it("auto-bootstraps on an instance this build enables by default", () => {
+  const selection = ServerRuntimeStartup.getAutoBootstrapThreadModelSelection();
+
+  assert.deepEqual(selection, {
+    instanceId: ProviderInstanceId.make("claudeAgent"),
+    model: "claude-fable-5-1",
   });
+  // A Codex model slug on a Claude instance would be an unlaunchable pair.
+  assert.notStrictEqual(selection.model, DEFAULT_MODEL);
 });
 
 it.effect("starts without scanning or rebuilding projection history", () =>
