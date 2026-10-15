@@ -85,6 +85,7 @@ import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
+  useIgnoredVersionUpdateEnvironments,
 } from "~/versionSkew";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { RemoveT3ConnectEnvironmentDialog } from "../clerk/RemoveT3ConnectEnvironmentDialog";
@@ -156,6 +157,7 @@ function LocalVersionStatusLabel() {
 
 /** Environments lists the machines this app connects to; access covers who may reach this one. */
 export function ConnectionsSettings({ view }: { readonly view: "environments" | "access" }) {
+  const [ignoredVersionUpdates] = useIgnoredVersionUpdateEnvironments();
   const desktopBridge = window.desktopBridge;
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
@@ -192,6 +194,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
       const desktopAppUpdate = supportsDesktopAppUpdate(environment.serverConfig);
       if (
         !mismatch ||
+        ignoredVersionUpdates.includes(environment.environmentId) ||
         updateStatus === "running" ||
         !environment.entry.enabled ||
         environment.connection.phase !== "connected" ||
