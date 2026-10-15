@@ -128,6 +128,7 @@ const sendForTenMinutes = (
       Layer.provide(
         ConfigProvider.layer(
           ConfigProvider.fromUnknown({
+            T3CODE_OFFLINE: false,
             T3CODE_TELEMETRY_ENABLED: true,
             T3CODE_POSTHOG_KEY: "phc_test_key",
             T3CODE_POSTHOG_HOST: "http://localhost",
@@ -276,6 +277,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
       const layerConfig = ConfigProvider.layer(
         ConfigProvider.fromUnknown({
           T3CODE_TELEMETRY_ENABLED: true,
+          T3CODE_OFFLINE: false,
           T3CODE_POSTHOG_KEY: "phc_test_key",
           T3CODE_POSTHOG_HOST: "http://localhost",
           T3CODE_TELEMETRY_FLUSH_BATCH_SIZE: 20,
@@ -377,6 +379,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
       const layerConfig = ConfigProvider.layer(
         ConfigProvider.fromUnknown({
           T3CODE_TELEMETRY_ENABLED: false,
+          T3CODE_OFFLINE: false,
           T3CODE_POSTHOG_KEY: "phc_test_key",
           T3CODE_POSTHOG_HOST: "http://localhost",
         }),
@@ -403,6 +406,57 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
         yield* Layer.launch(layerBatchServer).pipe(Effect.forkScoped);
         const analytics = yield* AnalyticsService.AnalyticsService;
         yield* analytics.record("test.disabled", { index: 1 });
+        yield* analytics.flush;
+      }).pipe(Effect.provide(layerRuntime));
+
+      assert.deepEqual(capturedPaths, []);
+    }),
+  );
+
+  it.effect("records and sends nothing in offline mode", () =>
+    Effect.gen(function* () {
+      // `T3CODE_OFFLINE=1` short-circuits the service before the identifier
+      // read, so even with telemetry configured on and a capturing HTTP
+      // client nothing leaves; removing the gate would make this fail.
+      const capturedPaths: Array<string> = [];
+      const layerServerConfig = ServerConfig.ServerConfig.layerTest(process.cwd(), {
+        prefix: "t3-telemetry-offline-",
+      });
+      const layerCaptureClient = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) => {
+          capturedPaths.push(request.url);
+          return Effect.fail(
+            new HttpClientError.HttpClientError({
+              reason: new HttpClientError.TransportError({ request, cause: "unexpected send" }),
+            }),
+          );
+        }),
+      );
+      const layerRuntime = AnalyticsService.layer.pipe(
+        Layer.provideMerge(layerServerConfig),
+        Layer.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              T3CODE_OFFLINE: "1",
+              T3CODE_TELEMETRY_ENABLED: true,
+              T3CODE_POSTHOG_KEY: "phc_test_key",
+              T3CODE_POSTHOG_HOST: "http://localhost",
+            }),
+          ),
+        ),
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(HostProcess.Platform, "linux"),
+            Layer.succeed(HostProcess.Architecture, "arm64"),
+            layerCaptureClient,
+          ),
+        ),
+      );
+
+      yield* Effect.gen(function* () {
+        const analytics = yield* AnalyticsService.AnalyticsService;
+        yield* analytics.record("test.offline", { index: 1 });
         yield* analytics.flush;
       }).pipe(Effect.provide(layerRuntime));
 

@@ -614,6 +614,14 @@ export const ServerConfig = Schema.Struct({
    * before using it.
    */
   directEndpoints: Schema.optionalKey(ForwardCompatibleArray(ServerDirectEndpoint)),
+  /**
+   * True when the server runs in offline mode (`T3CODE_OFFLINE=1`): it sends no
+   * product telemetry, never hosts through T3 Connect, and never runs the
+   * tailscale CLI. Absent (or false) on online servers and on servers that
+   * predate the flag; clients hide hosting and Tailscale entry points only
+   * when it is true.
+   */
+  offline: Schema.optionalKey(Schema.Boolean),
   observability: ServerObservability,
   settings: ServerSettings,
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
