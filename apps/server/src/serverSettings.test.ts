@@ -130,6 +130,19 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(settings.providerModelPreferences?.[provider]?.modelOrder, ["luna", "sol"]);
     }).pipe(Effect.provide(layerServerSettings())),
   );
+  it.effect("replaces the whole provider order instead of merging it", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const first = ProviderInstanceId.make("opencode_work");
+      const second = ProviderInstanceId.make("codex_personal");
+      assert.deepEqual((yield* service.getSettings).providerOrder, []);
+      yield* service.updateSettings({ setProviderOrder: { order: [first, second] } });
+      // A second write states the whole desired prefix, so `first` must not
+      // survive as a leftover entry from the earlier arrangement.
+      yield* service.updateSettings({ setProviderOrder: { order: [second] } });
+      assert.deepEqual((yield* service.getSettings).providerOrder, [second]);
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
   it.effect("persists and broadcasts model preferences to other connected clients", () =>
     Effect.scoped(
       Effect.gen(function* () {

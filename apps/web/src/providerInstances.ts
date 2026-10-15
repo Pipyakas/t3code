@@ -203,6 +203,38 @@ export function sortProviderInstanceEntries(
   return sorted;
 }
 
+/**
+ * Apply the stored partial provider order on top of an already-sorted list:
+ * ids present in `order` come first, exactly as listed; every other entry
+ * keeps its incoming relative order after them. Ids in `order` that match no
+ * entry are ignored, and an empty order is a no-op, so an instance the user
+ * has never arranged (or one just added) lands at the end rather than inside
+ * the saved arrangement. Generic over the row type so the settings list can
+ * order its rows the same way as picker entries.
+ */
+export function orderProviderInstanceEntries<T extends { readonly instanceId: ProviderInstanceId }>(
+  entries: ReadonlyArray<T>,
+  order: ReadonlyArray<ProviderInstanceId>,
+): ReadonlyArray<T> {
+  if (order.length === 0 || entries.length === 0) return entries;
+  // Stable partition: one pass over `order` picks the placed entries, one pass
+  // over `entries` keeps everything else in its original order.
+  const entryById = new Map<ProviderInstanceId, T>();
+  for (const entry of entries) {
+    if (!entryById.has(entry.instanceId)) entryById.set(entry.instanceId, entry);
+  }
+  const placed = new Set<ProviderInstanceId>();
+  const ordered: T[] = [];
+  for (const id of order) {
+    const entry = entryById.get(id);
+    if (entry === undefined || placed.has(id)) continue;
+    placed.add(id);
+    ordered.push(entry);
+  }
+  if (ordered.length === 0) return entries;
+  return [...ordered, ...entries.filter((entry) => !placed.has(entry.instanceId))];
+}
+
 function getProviderInstanceEntry(
   providers: ReadonlyArray<ServerProvider>,
   instanceId: ProviderInstanceId,
