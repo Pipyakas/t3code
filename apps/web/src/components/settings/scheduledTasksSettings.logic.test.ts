@@ -232,7 +232,12 @@ describe("scheduled task model defaults", () => {
   };
   const projectSelection = { instanceId, model: "project-model" };
   const config = {
-    settings: { ...DEFAULT_SERVER_SETTINGS, defaultModelSelection: environmentSelection },
+    settings: {
+      ...DEFAULT_SERVER_SETTINGS,
+      defaultModelSelection: environmentSelection,
+      // Codex is off by default in the offline build; this fixture uses it enabled.
+      providerInstances: { [instanceId]: { driver: "codex", enabled: true } },
+    },
     providers: [
       {
         instanceId,

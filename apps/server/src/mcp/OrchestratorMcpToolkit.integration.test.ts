@@ -121,6 +121,12 @@ const decodeThreadSendResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadS
 const decodeThreadWaitResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadWaitResult);
 const decodeThreadUpdateResult = Schema.decodeUnknownEffect(ThreadMetadataMcpUpdateResult);
 
+// Codex starts off in this fork; these tests delegate to a Codex instance.
+const layerServerSettings = ServerSettings.layerTest({
+  providerInstances: {
+    [codexInstanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+  },
+});
 const codexSelection = {
   instanceId: codexInstanceId,
   model: codexModel,
@@ -624,7 +630,7 @@ describe("orchestrator MCP toolkit", () => {
             layerOrchestrator,
             ThreadManagementService.layer.pipe(
               Layer.provide(layerOrchestrator),
-              Layer.provide(ServerSettings.layerTest()),
+              Layer.provide(layerServerSettings),
               Layer.provide(
                 CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
               ),
@@ -697,7 +703,7 @@ describe("orchestrator MCP toolkit", () => {
             Layer.provideMerge(layerOrchestration),
             Layer.provide(layerRegistry),
             Layer.provide(layerProviderRegistry),
-            Layer.provide(ServerSettings.layerTest()),
+            Layer.provide(layerServerSettings),
             Layer.provide(layerScheduledTaskStub),
             Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
             Layer.provide(
@@ -3893,7 +3899,7 @@ describe("orchestrator MCP toolkit", () => {
           layerOrchestrator,
           ThreadManagementService.layer.pipe(
             Layer.provide(layerOrchestrator),
-            Layer.provide(ServerSettings.layerTest()),
+            Layer.provide(layerServerSettings),
             Layer.provide(
               CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
             ),
@@ -3915,7 +3921,7 @@ describe("orchestrator MCP toolkit", () => {
             ),
           ),
           Layer.provide(layerProviderRegistry),
-          Layer.provide(ServerSettings.layerTest()),
+          Layer.provide(layerServerSettings),
           Layer.provide(layerUnusedScheduledTaskStub),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
           Layer.provideMerge(
