@@ -70,7 +70,12 @@ const layerTest = ThreadManagementService.layer.pipe(
       ),
     ),
   ),
-  Layer.provideMerge(ServerSettings.layerTest()),
+  // Codex starts off in this fork; these tests drive a Codex instance.
+  Layer.provideMerge(
+    ServerSettings.layerTest({
+      providerInstances: { [instanceId]: { driver: "codex", enabled: true } },
+    }),
+  ),
   Layer.provideMerge(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))),
 );
 

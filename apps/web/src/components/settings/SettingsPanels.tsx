@@ -152,7 +152,8 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
   "double-click": "Double press",
 };
 
-const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
+/** Last resort when no provider is enabled; a driver that is off by default. */
+const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 function AboutVersionSection() {
   const updateState = useDesktopUpdateState();
   const [switchChannel, setSwitchChannel] = useState<DesktopUpdateChannel | null>(null);

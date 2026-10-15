@@ -113,7 +113,8 @@ const makeServerConfig = (providers: ReadonlyArray<unknown>): ServerConfig => ({
       otlpTracesEnabled: false,
       otlpMetricsEnabled: false,
     },
-    settings: {},
+    // Codex starts off in this fork, so the Codex provider this fixture serves is enabled explicitly.
+    settings: { providerInstances: { [CODEX]: { driver: "codex", enabled: true } } },
     threadSnapshotPagination: true,
     threadResumeCompletionMarker: true,
     shellResumeCompletionMarker: true,

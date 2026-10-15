@@ -270,7 +270,17 @@ it.effect.each([
           }),
       }),
     ),
-    Layer.provide(ServerSettings.layerTest()),
+    Layer.provide(
+      ServerSettings.layerTest({
+        providerInstances: {
+          // Codex starts off in this fork; this test sends to a Codex thread.
+          [ProviderInstanceId.make("codex")]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: true,
+          },
+        },
+      }),
+    ),
     Layer.provideMerge(layerReceiptsTest),
   );
 

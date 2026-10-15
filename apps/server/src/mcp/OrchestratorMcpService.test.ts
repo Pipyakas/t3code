@@ -1507,6 +1507,8 @@ describe("OrchestratorMcpService provider resolution", () => {
           }),
           ServerSettings.layerTest({
             providerInstances: {
+              // Codex starts off in this fork; this test expects it to advertise delegation.
+              [codexInstanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
               [ProviderInstanceId.make("pi")]: {
                 driver: ProviderDriverKind.make("pi"),
                 enabled: true,

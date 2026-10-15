@@ -69,6 +69,11 @@ describe("groupWelcomeAgents", () => {
       providerInstances: {
         [ProviderInstanceId.make("pi")]: { driver: ProviderDriverKind.make("pi") },
         [ProviderInstanceId.make("registry")]: { driver: acpRegistry },
+        // Codex starts off in this fork, so the Codex agent this test lists is enabled explicitly.
+        [ProviderInstanceId.make("codex")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+        },
       },
       projectSettingsOverrides: {
         [ProjectId.make("project-a")]: {
