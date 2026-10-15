@@ -1,0 +1,317 @@
+name: Fork nightly
+
+# Publishes an unsigned Windows x64 and Linux x64 release for every push to main. Main is
+# upstream's newest stable release plus backported upstream fixes and the fork's
+# commits, rebased by a scheduled agent on a local machine before it pushes;
+# installed copies auto-update from these releases. Offline machines run the
+# same build with T3CODE_OFFLINE=1.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-nightly
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  # Upstream's workflows target its own runners, secrets, and services.
+  # Merges keep bringing them back, so disable everything but this file.
+  disable_upstream_workflows:
+    name: Disable upstream workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Disable upstream workflows
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELF: .github/workflows/fork-nightly.yml
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows" --paginate \
+            --jq ".workflows[] | select(.state == \"active\" and .path != \"$SELF\") | .id" |
+          while read -r id; do
+            gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${id}/disable"
+          done
+
+  # Releases are versioned <upstream stable>-fork.N: N steps by one per fork
+  # release on the same upstream base. Semver sorts that below the upstream
+  # release itself, so the next upstream release always reads as newer, and a
+  # fork build never claims to contain an upstream release it does not.
+  meta:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      upstream: ${{ steps.meta.outputs.upstream }}
+      tag: ${{ steps.meta.outputs.tag }}
+      name: ${{ steps.meta.outputs.name }}
+    steps:
+      - id: meta
+        name: Resolve release version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM: pingdotgg/t3code
+        run: |
+          set -euo pipefail
+          stable='^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          base=""
+          for tag in $(gh release list -R "$UPSTREAM" -L 50 --exclude-drafts --exclude-pre-releases --json tagName -q '.[].tagName' | grep -E "$stable" | sort -rV || true); do
+            sha=$(gh api "repos/$UPSTREAM/commits/$tag" -q .sha)
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...$GITHUB_SHA" -q .status 2>/dev/null || true)
+            if [ "$status" = ahead ] || [ "$status" = identical ]; then base=${tag#v}; break; fi
+            echo "::warning::Upstream $tag is not in this commit yet; rebase onto it before releasing."
+          done
+          [ -n "$base" ] || { echo "::error::No upstream stable release is in this commit."; exit 1; }
+
+          last=$(gh release list -R "$GITHUB_REPOSITORY" -L 100 --json tagName -q '.[].tagName' |
+            sed -n "s/^v${base//./\\.}-fork\.\([0-9]\+\)\$/\1/p" | sort -n | tail -n 1)
+          version="$base-fork.$(( ${last:-0} + 1 ))"
+          echo "upstream base $base, previous fork release ${last:+$base-fork.$last}, releasing $version"
+          {
+            echo "version=$version"
+            echo "upstream=$base"
+            echo "tag=v$version"
+            echo "name=T3 Code $version (${GITHUB_SHA:0:12})"
+          } >> "$GITHUB_OUTPUT"
+
+  build_windows:
+    name: Build Windows x64
+    needs: meta
+    runs-on: windows-latest
+    timeout-minutes: 60
+    # T3's public client config for T3 Connect. The desktop app and the server
+    # executable both build it in; without it the server cannot host.
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: "pk_live_Y2xlcmsudDMuY29kZXMk"
+      T3CODE_CLERK_JWT_TEMPLATE: "t3-relay"
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "hzxSgY2cH10sDU2r"
+      T3CODE_RELAY_URL: "https://relay.t3.codes"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Spectre-mitigated MSVC libs
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $proc = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
+
+      - name: Build installer
+        shell: bash
+        env:
+          T3CODE_DESKTOP_SIGNED: "false"
+          T3CODE_DESKTOP_WSL_RUNTIME: ""
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          # Clients compare upstream servers against this, not the fork's own version.
+          T3CODE_UPSTREAM_VERSION: ${{ needs.meta.outputs.upstream }}
+        run: |
+          node scripts/update-release-package-versions.ts "${{ needs.meta.outputs.version }}"
+          node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 \
+            --build-version "${{ needs.meta.outputs.version }}" --verbose
+
+      # SSH environments and `t3 service` install the server from these
+      # archives, pinned to the desktop's own version.
+      - name: Build CLI single-executable
+        shell: bash
+        env:
+          T3CODE_UPSTREAM_VERSION: ${{ needs.meta.outputs.upstream }}
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      # A server built without T3's public config cannot host T3 Connect, and
+      # every service updated to it drops off the relay (nightly 3106).
+      - name: Check T3 Connect config is built in
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$T3CODE_RELAY_URL" "$T3CODE_CLERK_PUBLISHABLE_KEY" "$T3CODE_CLERK_CLI_OAUTH_CLIENT_ID"; do
+            [ -n "$value" ] && grep -qF -- "$value" apps/server/dist-exe/bin.mjs || {
+              echo "::error::apps/server/dist-exe/bin.mjs is missing T3 Connect config ($value)"
+              exit 1
+            }
+          done
+
+      - name: Build CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          monitor_dir="$RUNNER_TEMP/cli-resource-monitor/win32-x64"
+          mkdir -p "$monitor_dir"
+          cp native/resource-monitor/target/x86_64-pc-windows-msvc/release/t3-resource-monitor.exe "$monitor_dir/"
+          node scripts/build-cli-archive.ts --platform win --arch x64 \
+            --version "${{ needs.meta.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+          node scripts/smoke-cli-archive.ts --archive release-cli/* \
+            --expect-version "${{ needs.meta.outputs.version }}"
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-windows-x64
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+            release-cli/*
+          if-no-files-found: error
+
+  build_linux:
+    name: Build Linux x64
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # T3's public client config for T3 Connect. The desktop app and the server
+    # executable both build it in; without it the server cannot host.
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: "pk_live_Y2xlcmsudDMuY29kZXMk"
+      T3CODE_CLERK_JWT_TEMPLATE: "t3-relay"
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "hzxSgY2cH10sDU2r"
+      T3CODE_RELAY_URL: "https://relay.t3.codes"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install Linux desktop build libraries
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev pkg-config imagemagick
+
+      - name: Build AppImage
+        shell: bash
+        env:
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          T3CODE_UPSTREAM_VERSION: ${{ needs.meta.outputs.upstream }}
+        run: |
+          node scripts/update-release-package-versions.ts "${{ needs.meta.outputs.version }}"
+          node scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64 \
+            --build-version "${{ needs.meta.outputs.version }}" --verbose
+
+      - name: Build CLI single-executable
+        shell: bash
+        env:
+          T3CODE_UPSTREAM_VERSION: ${{ needs.meta.outputs.upstream }}
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      # A server built without T3's public config cannot host T3 Connect, and
+      # every service updated to it drops off the relay (nightly 3106).
+      - name: Check T3 Connect config is built in
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$T3CODE_RELAY_URL" "$T3CODE_CLERK_PUBLISHABLE_KEY" "$T3CODE_CLERK_CLI_OAUTH_CLIENT_ID"; do
+            [ -n "$value" ] && grep -qF -- "$value" apps/server/dist-exe/bin.mjs || {
+              echo "::error::apps/server/dist-exe/bin.mjs is missing T3 Connect config ($value)"
+              exit 1
+            }
+          done
+
+      - name: Build CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          monitor_dir="$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          mkdir -p "$monitor_dir"
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor "$monitor_dir/"
+          node scripts/build-cli-archive.ts --platform linux --arch x64 \
+            --version "${{ needs.meta.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+          node scripts/smoke-cli-archive.ts --archive release-cli/* \
+            --expect-version "${{ needs.meta.outputs.version }}"
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-linux-x64
+          path: |
+            release/*.AppImage
+            release/*.blockmap
+            release/latest-linux.yml
+            release-cli/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [meta, build_windows, build_linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@v8
+        with:
+          pattern: fork-*
+          path: builds
+          merge-multiple: true
+
+      - name: Checksum CLI archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd builds/release-cli
+          sha256sum t3-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.meta.outputs.name }}
+          prerelease: false
+          make_latest: true
+          generate_release_notes: false
+          files: |
+            builds/release/*
+            builds/release-cli/*
+          fail_on_unmatched_files: true
