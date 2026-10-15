@@ -564,7 +564,8 @@ export const make = Effect.gen(function* () {
     });
 
     // Spawning Mac App Store Tailscale can prompt for TCC access even when exposure is disabled.
-    if (state.mode !== "network-accessible" && !state.tailscaleServeEnabled) {
+    // Offline mode (`T3CODE_OFFLINE=1`) never resolves Tailscale endpoints.
+    if (config.offline || (state.mode !== "network-accessible" && !state.tailscaleServeEnabled)) {
       return coreEndpoints;
     }
 

@@ -175,6 +175,51 @@ describe("searchSettings", () => {
     const ids = SETTINGS_SEARCH_ITEMS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it("hides hosting and Tailscale rows while the server runs in offline mode", () => {
+    const availability = {
+      hasCloudPublicConfig: true,
+      hasEnvironment: true,
+      hasProviderSettingsEnvironment: true,
+      hasMacProviderSettingsEnvironment: false,
+      canManageLocalBackend: true,
+      isWslSettingsRowVisible: false,
+      hasThreadAutoSettlement: false,
+    };
+    const itemIds = (offline: boolean) =>
+      filterAvailableSettingsSearchItems({ ...availability, offline }).map((item) => item.id);
+
+    // Online (flag absent/false): every row is offered, upstream behaviour.
+    // hold-webhooks-while-offline also needs the managed tunnel on, so it is
+    // gated separately below.
+    const online = itemIds(false);
+    expect(online).toContain("t3-connect");
+    expect(online).toContain("publish-agent-activity");
+    expect(online).toContain("tailscale-https");
+    expect(
+      filterAvailableSettingsSearchItems({
+        ...availability,
+        offline: false,
+        managedTunnelActive: true,
+      }).map((item) => item.id),
+    ).toContain("hold-webhooks-while-offline");
+
+    // Offline: the four `offline: true` hosting/Tailscale rows disappear while
+    // unrelated rows stay. Webhooks also disappear with the tunnel on, which
+    // would otherwise offer them.
+    const offline = itemIds(true);
+    expect(offline).not.toContain("t3-connect");
+    expect(offline).not.toContain("publish-agent-activity");
+    expect(offline).not.toContain("tailscale-https");
+    expect(
+      filterAvailableSettingsSearchItems({
+        ...availability,
+        offline: true,
+        managedTunnelActive: true,
+      }).map((item) => item.id),
+    ).not.toContain("hold-webhooks-while-offline");
+    expect(offline).toContain("network-access");
+  });
 });
 
 describe("settings search targets", () => {
