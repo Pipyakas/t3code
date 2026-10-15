@@ -73,7 +73,18 @@ export const deriveProviderInstanceConfigMap = (
     }
   }
 
-  return merged as ProviderInstanceConfigMap;
+  // Clients render instances in this map's order. Group them by driver in
+  // `BUILT_IN_DRIVERS` order (unknown drivers last) so the built-in order also
+  // holds on machines whose saved settings list another driver first; within
+  // a driver, saved order is kept.
+  const driverRank = (instance: ProviderInstanceConfig) => {
+    const rank = BUILT_IN_DRIVERS.findIndex((driver) => driver.driverKind === instance.driver);
+    return rank === -1 ? BUILT_IN_DRIVERS.length : rank;
+  };
+  const ordered = Object.entries(merged).toSorted(
+    ([, left], [, right]) => driverRank(left) - driverRank(right),
+  );
+  return Object.fromEntries(ordered) as ProviderInstanceConfigMap;
 };
 
 export const DEV_REPLAY_INSTANCE_ID = ProviderInstanceId.make("devReplay");
