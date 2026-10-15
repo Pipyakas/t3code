@@ -71,6 +71,10 @@ export const appendClientConnectionParams = (
   if (clientMetadata?.appVersion) {
     url.searchParams.set("clientAppVersion", clientMetadata.appVersion);
   }
+  // Fork servers report their real version only to clients that send this.
+  if (clientMetadata?.upstreamVersion) {
+    url.searchParams.set("clientUpstreamVersion", clientMetadata.upstreamVersion);
+  }
   if (clientMetadata?.deviceType) {
     const deviceType =
       clientMetadata.deviceType === "mobile"
