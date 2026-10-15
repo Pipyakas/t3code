@@ -85,6 +85,7 @@ import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
+  useIgnoredVersionUpdateEnvironments,
 } from "~/versionSkew";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { RemoveT3ConnectEnvironmentDialog } from "../clerk/RemoveT3ConnectEnvironmentDialog";
@@ -160,6 +161,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   // Offline mode (`T3CODE_OFFLINE=1`): Tailscale is disabled, so no row
   // offers Tailscale setup.
   const offline = useOfflineMode();
+  const [ignoredVersionUpdates] = useIgnoredVersionUpdateEnvironments();
   const desktopBridge = window.desktopBridge;
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
@@ -196,6 +198,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
       const desktopAppUpdate = supportsDesktopAppUpdate(environment.serverConfig);
       if (
         !mismatch ||
+        ignoredVersionUpdates.includes(environment.environmentId) ||
         updateStatus === "running" ||
         !environment.entry.enabled ||
         environment.connection.phase !== "connected" ||
