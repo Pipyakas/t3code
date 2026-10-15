@@ -18,6 +18,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
   query as claudeQuery,
+  type ModelInfo as ClaudeModelInfo,
   type Options as ClaudeQueryOptions,
   type SlashCommand as ClaudeSlashCommand,
   type SDKControlGetUsageResponse,
@@ -51,6 +52,7 @@ import {
   formatClaudeVersionUpgradeMessage,
   resolveClaudeModelsForVersion,
   resolveClaudeUpdateRequiredModels,
+  withClaudeReportedModels,
 } from "./ClaudeModelCatalog.ts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
@@ -241,6 +243,8 @@ export type ClaudeCapabilitiesProbe = {
   /** OAuth applies only to firstParty; Bedrock uses external AWS credentials and omits subscription/token fields. */
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  /** Models Claude Code reports, including gateway-discovered ones. */
+  readonly models?: ReadonlyArray<ClaudeModelInfo>;
   /** Undefined means get_usage failed; absent windows on success mean no subscription windows, as with API keys. */
   readonly usage?: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits">;
   readonly usageCheckedAt?: string;
@@ -318,6 +322,25 @@ function waitForAbortSignal(signal: AbortSignal): Promise<void> {
   });
 }
 
+/** Claude Code's default for `CLAUDE_CODE_GATEWAY_MODEL_DISCOVERY_TIMEOUT_MS`. */
+const CLAUDE_GATEWAY_DISCOVERY_TIMEOUT_MS = 3_000;
+
+/**
+ * How long a probe subprocess must outlive initialization so gateway model
+ * discovery can finish. Claude Code reports gateway models from its on-disk
+ * cache and refreshes that cache in the background after startup, so aborting
+ * right after initialization means a cold config dir never learns them.
+ */
+function claudeGatewayDiscoveryGraceMs(environment: NodeJS.ProcessEnv): number {
+  const enabled = environment.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY?.trim();
+  if (!enabled || enabled === "0" || enabled.toLowerCase() === "false") return 0;
+  if (!environment.ANTHROPIC_BASE_URL?.trim()) return 0;
+  const configured = Number(environment.CLAUDE_CODE_GATEWAY_MODEL_DISCOVERY_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : CLAUDE_GATEWAY_DISCOVERY_TIMEOUT_MS;
+}
+
 /** A never-yielding prompt allows local initialization IPC without sending an Anthropic request. */
 const probeClaudeCapabilities = (
   claudeSettings: ClaudeSettings,
@@ -326,8 +349,13 @@ const probeClaudeCapabilities = (
   includeUsage = true,
 ) => {
   const abort = new AbortController();
+  let abortGraceMs = 0;
+  const abortProbe = Effect.sync(() => {
+    if (!abort.signal.aborted) abort.abort();
+  });
   return Effect.gen(function* () {
     const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, environment);
+    abortGraceMs = claudeGatewayDiscoveryGraceMs(claudeEnvironment);
     const executablePath = yield* resolveClaudeSdkExecutablePath(
       claudeSettings.binaryPath,
       claudeEnvironment,
@@ -386,14 +414,23 @@ const probeClaudeCapabilities = (
           apiKeySource: account?.apiKeySource,
           apiProvider: account?.apiProvider,
           slashCommands: parseClaudeInitializationCommands(init.commands),
+          ...(init.models?.length ? { models: init.models } : {}),
           ...(usage ? { usage, usageCheckedAt } : {}),
         } satisfies ClaudeCapabilitiesProbe;
       }),
     ),
+    // Return the capabilities right away, but let a gateway discovery that is
+    // still in flight write Claude Code's cache so the next probe reports it.
     Effect.ensuring(
-      Effect.sync(() => {
-        if (!abort.signal.aborted) abort.abort();
-      }),
+      Effect.suspend(() =>
+        abortGraceMs > 0
+          ? Effect.sleep(abortGraceMs).pipe(
+              Effect.andThen(abortProbe),
+              Effect.forkDetach,
+              Effect.asVoid,
+            )
+          : abortProbe,
+      ),
     ),
     Effect.tapError((error) =>
       Effect.logWarning("Claude capability probe failed.", { errorTag: error._tag }),
@@ -557,11 +594,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
-  const models = providerModelsFromSettings(
-    resolveClaudeModelsForVersion(modelCatalog, parsedVersion),
-    claudeSettings.customModels,
-    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
-  );
   const updateRequiredModels = resolveClaudeUpdateRequiredModels(modelCatalog, parsedVersion);
   const versionUpgradeMessage = formatClaudeVersionUpgradeMessage(modelCatalog, parsedVersion);
 
@@ -572,6 +604,14 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     probeResult && Result.isSuccess(probeResult) ? probeResult.success : undefined;
   const probeFailure =
     probeResult && Result.isFailure(probeResult) ? probeResult.failure : undefined;
+  const models = providerModelsFromSettings(
+    resolveClaudeModelsForVersion(
+      withClaudeReportedModels(modelCatalog, claudeSettings.customModels, capabilities?.models),
+      parsedVersion,
+    ),
+    claudeSettings.customModels,
+    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+  );
   const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
   const slashCommands = [COMPACT_SLASH_COMMAND, ...(capabilities?.slashCommands ?? [])];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
