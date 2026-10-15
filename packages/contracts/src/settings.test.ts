@@ -28,6 +28,32 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("ServerSettings provider order", () => {
+  it("defaults to an empty partial order", () => {
+    expect(decodeServerSettings({}).providerOrder).toEqual([]);
+  });
+
+  it("decodes and round-trips a stored order", () => {
+    const input = {
+      providerOrder: [ProviderInstanceId.make("opencode_work"), ProviderInstanceId.make("codex")],
+    };
+    expect(decodeServerSettings(input).providerOrder).toEqual(input.providerOrder);
+    expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+  });
+
+  it("round-trips a setProviderOrder patch", () => {
+    const patch = { setProviderOrder: { order: [ProviderInstanceId.make("opencode_work")] } };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+  });
+
+  it("rejects entries that are not provider slugs", () => {
+    expect(() => decodeServerSettings({ providerOrder: ["1bad"] })).toThrow();
+    expect(() =>
+      decodeServerSettingsPatch({ setProviderOrder: { order: ["not a slug"] } }),
+    ).toThrow();
+  });
+});
+
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

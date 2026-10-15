@@ -15,6 +15,7 @@ import {
   type ProviderInstanceEntry,
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
+  orderProviderInstanceEntries,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { type UnifiedSettings } from "@t3tools/contracts/settings";
@@ -52,13 +53,17 @@ export function useComposerProviderModel(
     lockedInstanceId,
   } = input;
   const draftModelState = useComposerDraftModelState(threadRef);
-  const providerInstanceEntries: ReadonlyArray<ProviderInstanceEntry> = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(providerStatuses),
-      settings,
-      activeProjectId,
-    ),
-  );
+  const providerInstanceEntries: ReadonlyArray<ProviderInstanceEntry> =
+    orderProviderInstanceEntries(
+      sortProviderInstanceEntries(
+        applyProviderInstanceSettings(
+          deriveProviderInstanceEntries(providerStatuses),
+          settings,
+          activeProjectId,
+        ),
+      ),
+      settings.providerOrder ?? [],
+    );
   const selection = resolveComposerProviderSelection({
     entries: providerInstanceEntries,
     candidateInstanceIds,
