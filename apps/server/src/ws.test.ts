@@ -468,6 +468,7 @@ it.effect(
             {},
             yield* PreviewAutomationBroker.PreviewAutomationBroker,
             yield* ServerBrowser.ServerBrowser,
+            false,
           ).pipe(Layer.provide(configRpcServices)),
         ),
       );
