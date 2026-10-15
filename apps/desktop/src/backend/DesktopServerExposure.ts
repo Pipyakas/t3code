@@ -573,10 +573,11 @@ export const make = Effect.gen(function* () {
       customHttpsEndpointUrls: config.desktopHttpsEndpointUrls,
     });
 
-    // Don't spawn the Tailscale CLI when the user hasn't opted into any
-    // network exposure. The spawn itself triggers a macOS "Other apps"
-    // TCC prompt on Mac App Store Tailscale builds.
-    if (state.mode !== "network-accessible" && !state.tailscaleServeEnabled) {
+    // Offline mode (`T3CODE_OFFLINE=1`): never resolve Tailscale endpoints —
+    // that path spawns the tailscale CLI, and the spawn itself triggers a
+    // macOS "Other apps" TCC prompt on Mac App Store Tailscale builds. Only
+    // the core (loopback/LAN/manual) endpoints are advertised.
+    if (config.offline || (state.mode !== "network-accessible" && !state.tailscaleServeEnabled)) {
       return coreEndpoints;
     }
 
