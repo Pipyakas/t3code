@@ -9,6 +9,7 @@ import { AuthStandardClientScopes } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, expect, it } from "@effect/vitest";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestConsole from "effect/testing/TestConsole";
@@ -273,6 +274,30 @@ describe("t3 pair", () => {
       assert.include(rendered, "No running T3 Code server found.");
       assert.include(rendered, "npx t3 serve");
       assert.include(rendered, "npx t3 connect");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("in offline mode refuses --tailscale because Tailscale is disabled", () =>
+    Effect.gen(function* () {
+      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-ts-disabled-"));
+
+      const error = yield* Effect.provide(
+        runCli(["pair", "--tailscale", "--base-dir", baseDir]).pipe(Effect.flip),
+        Layer.mergeAll(
+          layerCliRuntime,
+          TestConsole.layer,
+          ConfigProvider.layer(ConfigProvider.fromUnknown({ T3CODE_OFFLINE: "1" })),
+        ),
+      );
+
+      const rendered = [
+        String(error),
+        typeof error === "object" && error !== null && "message" in error
+          ? String(error.message)
+          : "",
+        typeof error === "object" && error !== null && "cause" in error ? String(error.cause) : "",
+      ].join("\n");
+      assert.include(rendered, "Tailscale is disabled in offline mode");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
