@@ -722,4 +722,31 @@ describe("EnvironmentProviderSettings routing", () => {
     const reordered = renderPanel();
     expect(collectListRowIds(reordered)).toEqual([openCodeWorkId, openCodeId, claudeId, codexId]);
   });
+
+  it.each([
+    ["grok", true],
+    ["cursor", true],
+    ["antigravity", false],
+    ["opencode", false],
+    ["claudeAgent", false],
+  ])(
+    "offers removing the switched-off %s built-in only for Grok and Cursor",
+    (driver, removable) => {
+      const instanceId = ProviderInstanceId.make(driver);
+      settingsState.value = {
+        ...DEFAULT_UNIFIED_SETTINGS,
+        providerInstances: {
+          [instanceId]: { driver: ProviderDriverKind.make(driver), enabled: false },
+        },
+      };
+      atoms.providers = [provider()];
+      const panel = renderPanel({ targetInstanceId: instanceId });
+      const editor = visitElements(
+        panel,
+        (element) => element.props.instanceId === instanceId && element.props.mode === "editor",
+      );
+      expect(editor).not.toBeNull();
+      expect(editor?.props.onDelete !== undefined).toBe(removable);
+    },
+  );
 });
