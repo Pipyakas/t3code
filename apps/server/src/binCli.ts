@@ -33,28 +33,45 @@ const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
 const connectPublicConfigMissingMessage =
   "T3 Connect commands are unavailable: this build is missing T3 Connect public configuration.";
+const connectHostingDisabledMessage =
+  "T3 Connect hosting is disabled in offline mode (T3CODE_OFFLINE=1): this machine cannot be published through T3 Connect. Sign in from the app to connect to your other environments.";
 
-class ConnectPublicConfigMissingError extends CliError.UserError {
+class ConnectUnavailableError extends CliError.UserError {
   override get message() {
-    return connectPublicConfigMissingMessage;
+    // The command is registered whenever either cause applies; name the one
+    // that actually holds when the handler runs.
+    return process.env.T3CODE_OFFLINE === "1"
+      ? connectHostingDisabledMessage
+      : connectPublicConfigMissingMessage;
   }
 }
 
 const connectUnavailableCommand = Command.make("connect", {
   command: Argument.String("command").pipe(Argument.variadic),
 }).pipe(
-  Command.withDescription("T3 Connect is unavailable in builds without public configuration."),
+  Command.withDescription(
+    process.env.T3CODE_OFFLINE === "1"
+      ? "T3 Connect hosting is unavailable in offline mode (T3CODE_OFFLINE=1)."
+      : "T3 Connect is unavailable in builds without public configuration.",
+  ),
   Command.unlisted,
-  Command.withHandler(() =>
-    Effect.fail(
+  Command.withHandler(() => {
+    const cause =
+      process.env.T3CODE_OFFLINE === "1"
+        ? connectHostingDisabledMessage
+        : connectPublicConfigMissingMessage;
+    return Effect.fail(
       new CliError.ShowHelp({
         commandPath: ["t3", "connect"],
-        errors: [new ConnectPublicConfigMissingError({ cause: connectPublicConfigMissingMessage })],
+        errors: [new ConnectUnavailableError({ cause })],
       }),
-    ),
-  ),
+    );
+  }),
 );
 
+// Offline mode (`T3CODE_OFFLINE=1`) refuses `t3 connect` — which links this
+// machine to the relay for hosting — whatever public config the build carries.
+// Sign-in does not go through this command.
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
     Command.withDescription("Run the T3 Code server."),
@@ -86,7 +103,9 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       themeCommand,
       traceCommand,
       triageCommand,
-      cloudEnabled ? connectCommand : connectUnavailableCommand,
+      cloudEnabled && process.env.T3CODE_OFFLINE !== "1"
+        ? connectCommand
+        : connectUnavailableCommand,
     ]),
   );
 
