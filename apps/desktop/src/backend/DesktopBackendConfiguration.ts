@@ -10,13 +10,16 @@ import * as Hex from "effect/encoding/Hex";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
+import * as DesktopBackgroundService from "./DesktopBackgroundService.ts";
 import * as DesktopCliShim from "../app/DesktopCliShim.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
@@ -52,7 +55,6 @@ export class DesktopBackendConfiguration extends Context.Service<
       PlatformError.PlatformError
     >;
     readonly resolvePrimaryLabel: Effect.Effect<string>;
-    readonly currentBootstrapToken: Effect.Effect<string, PlatformError.PlatformError>;
   }
 >()("@t3tools/desktop/backend/DesktopBackendConfiguration") {}
 
@@ -544,6 +546,39 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
   },
 );
 
+function attachedPrimaryStartConfig(
+  service: DesktopBackgroundService.BackgroundService,
+  stateDir: string,
+  nowMs: number,
+): DesktopBackendManager.DesktopBackendStartConfig {
+  const { httpBaseUrl, secret } = service;
+  const port = Number(httpBaseUrl.port || (httpBaseUrl.protocol === "https:" ? 443 : 80));
+  return {
+    attached: true,
+    // Nothing is spawned; these only name the service in readiness errors.
+    executablePath: "t3 service",
+    entryPath: service.runtimeStatePath,
+    cwd: stateDir,
+    args: [],
+    env: {},
+    extendEnv: false,
+    bootstrap: {
+      mode: "desktop",
+      noBrowser: true,
+      port,
+      host: httpBaseUrl.hostname,
+      desktopBootstrapToken: currentDesktopBootstrapToken(secret, nowMs),
+      desktopBootstrapSecret: secret,
+      tailscaleServeEnabled: false,
+      tailscaleServePort: port,
+    },
+    bootstrapDelivery: "fd3",
+    httpBaseUrl,
+    captureOutput: false,
+    preflightFailure: Option.none(),
+  };
+}
+
 const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl")(function* (
   input: SharedBootstrapInput & {
     readonly port: number;
@@ -772,6 +807,24 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  // Once this launch attaches to a background service it stays attached: a
+  // restarting service briefly has no runtime file, and starting the desktop's
+  // own server in that gap would put two servers on one state.
+  const attachedServiceRef = yield* Ref.make(
+    Option.none<DesktopBackgroundService.BackgroundService>(),
+  );
+  const resolveBackgroundService = Effect.gen(function* () {
+    const found = yield* DesktopBackgroundService.discover(environment.stateDir).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, environment.path),
+    );
+    if (Option.isSome(found)) {
+      yield* Ref.set(attachedServiceRef, found);
+      return found;
+    }
+    return yield* Ref.get(attachedServiceRef);
+  });
+
   const buildWindowsPrimaryConfig = Effect.gen(function* () {
     const shared = yield* sharedInputs;
     const resourceMonitorPath = yield* resolveResourceMonitorPath().pipe(
@@ -803,17 +856,19 @@ export const make = Effect.gen(function* () {
     return { useWsl, wslRequested, distro: persistedSettings.wslDistro };
   });
 
-  const currentBootstrapToken = Effect.gen(function* () {
-    const secret = yield* getOrCreateBootstrapSecret;
-    return currentDesktopBootstrapToken(secret, yield* Clock.currentTimeMillis);
-  });
-
   return DesktopBackendConfiguration.of({
-    currentBootstrapToken,
     resolvePrimary: Effect.gen(function* () {
       const { useWsl, wslRequested } = yield* describePrimary;
       if (useWsl) {
         return yield* buildWslPrimaryConfig;
+      }
+      const service = yield* resolveBackgroundService;
+      if (Option.isSome(service)) {
+        return attachedPrimaryStartConfig(
+          service.value,
+          environment.stateDir,
+          yield* Clock.currentTimeMillis,
+        );
       }
       if (wslRequested) {
         yield* Effect.logWarning(
