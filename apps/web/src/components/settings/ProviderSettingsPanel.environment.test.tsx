@@ -1,4 +1,6 @@
 import type { ReactElement } from "react";
+import { isValidElement } from "react";
+import { DndContext, type DragEndEvent } from "@dnd-kit/core";
 import {
   DEFAULT_UNIFIED_SETTINGS,
   EnvironmentId,
@@ -207,6 +209,24 @@ function isRefreshButton(element: ReactElement<Record<string, unknown>>): boolea
 
 function isAddProviderButton(element: ReactElement<Record<string, unknown>>): boolean {
   return element.props["aria-label"] === "Add provider";
+}
+
+/** List-mode provider rows in render order, walking the element tree depth first. */
+function collectListRowIds(panel: ReactElement<Record<string, unknown>>): ProviderInstanceId[] {
+  const ids: ProviderInstanceId[] = [];
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    if (!isValidElement<Record<string, unknown>>(node)) return;
+    if (node.props.instanceId !== undefined && node.props.mode === "list") {
+      ids.push(node.props.instanceId as ProviderInstanceId);
+    }
+    for (const value of Object.values(node.props)) visit(value);
+  };
+  visit(panel);
+  return ids;
 }
 
 async function flushPromises(): Promise<void> {
@@ -662,5 +682,39 @@ describe("EnvironmentProviderSettings routing", () => {
       environmentId,
       input: { instanceId, elicitationId: action.elicitationId },
     });
+  });
+
+  it("saves a dragged provider order and renders the rows in the stored order", () => {
+    const claudeId = ProviderInstanceId.make("claudeAgent");
+    const openCodeId = ProviderInstanceId.make("opencode");
+    const openCodeWorkId = ProviderInstanceId.make("opencode_work");
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [openCodeId]: { driver: ProviderDriverKind.make("opencode"), enabled: true },
+        [openCodeWorkId]: { driver: ProviderDriverKind.make("opencode"), enabled: true },
+      },
+    };
+    atoms.providers = [provider()];
+    const panel = renderPanel();
+    // Codex is always listed, after the drivers that start enabled.
+    expect(collectListRowIds(panel)).toEqual([claudeId, openCodeId, openCodeWorkId, codexId]);
+
+    const dnd = visitElements(panel, (element) => element.type === DndContext);
+    const onDragEnd = dnd?.props.onDragEnd as ((event: DragEndEvent) => void) | undefined;
+    expect(onDragEnd).toBeTypeOf("function");
+    // Drag the custom instance above the OpenCode default slot.
+    onDragEnd?.({
+      active: { id: openCodeWorkId },
+      over: { id: openCodeId },
+    } as unknown as DragEndEvent);
+    expect(settingsState.updateSettings).toHaveBeenCalledExactlyOnceWith({
+      setProviderOrder: { order: [claudeId, openCodeWorkId, openCodeId, codexId] },
+    });
+
+    // The stored order, not the drag event, drives the next render.
+    settingsState.value = { ...settingsState.value, providerOrder: [openCodeWorkId, openCodeId] };
+    const reordered = renderPanel();
+    expect(collectListRowIds(reordered)).toEqual([openCodeWorkId, openCodeId, claudeId, codexId]);
   });
 });

@@ -22,6 +22,7 @@ import { useSettingsScope } from "./SettingsScopeContext";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
+  orderProviderInstanceEntries,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import {
@@ -108,12 +109,15 @@ export function SourceControlWritingSettingsSection() {
   const textGenerationProviders = serverProviders.filter(
     (provider) => provider.supportsTextGeneration !== false,
   );
-  const instanceEntries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(textGenerationProviders),
-      settings,
-      target?.projectId ?? null,
+  const instanceEntries = orderProviderInstanceEntries(
+    sortProviderInstanceEntries(
+      applyProviderInstanceSettings(
+        deriveProviderInstanceEntries(textGenerationProviders),
+        settings,
+        target?.projectId ?? null,
+      ),
     ),
+    settings.providerOrder ?? [],
   );
   // The environment default can name an instance this project turned off.
   const projectEnabledInstanceIds = new Set(
