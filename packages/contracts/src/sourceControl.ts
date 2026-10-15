@@ -165,6 +165,12 @@ export const SourceControlProviderDiscoveryItem = Schema.Struct({
   kind: SourceControlProviderKind,
   ...SourceControlDiscoverySharedFields,
   auth: SourceControlProviderAuth,
+  /**
+   * Whether this environment has the host switched on in Settings. Optional so a client still
+   * decodes discovery from a server that predates the setting; absent means the host behaves as
+   * it always did. See `isSourceControlHostEnabled` for what decides it.
+   */
+  enabled: Schema.optional(Schema.Boolean),
 });
 export type SourceControlProviderDiscoveryItem = typeof SourceControlProviderDiscoveryItem.Type;
 

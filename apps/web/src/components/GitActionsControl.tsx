@@ -211,6 +211,14 @@ function getPublishProviderReadiness(input: {
       hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
     };
   }
+  // The server answers for this environment, so a host Settings has switched off is not
+  // offered here. A server that predates the setting says nothing, which reads as on.
+  if (discovered.enabled === false) {
+    return {
+      ready: false,
+      hint: `${discovered.label} is turned off. Turn it on in Settings -> Source Control.`,
+    };
+  }
   if (discovered.status !== "available") {
     return { ready: false, hint: discovered.installHint };
   }
@@ -506,6 +514,14 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     }
     return accounts;
   }, [sourceControlDiscovery.data]);
+  /** Hosts this environment has switched on, or null before discovery has answered. */
+  const enabledPublishProviders = useMemo(() => {
+    const discovered = sourceControlDiscovery.data?.sourceControlProviders;
+    if (discovered === undefined) return null;
+    return new Set(
+      discovered.filter((provider) => provider.enabled !== false).map((provider) => provider.kind),
+    );
+  }, [sourceControlDiscovery.data]);
   const publishProviderReadiness = useMemo(() => {
     const sourceControlProviders = sourceControlDiscovery.data?.sourceControlProviders ?? [];
     const readiness = new Map(
@@ -523,7 +539,10 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
   );
   const sortedPublishProviderOptions = useMemo(
     () =>
-      PUBLISH_PROVIDER_OPTIONS.toSorted((left, right) => {
+      PUBLISH_PROVIDER_OPTIONS.filter(
+        (option) =>
+          enabledPublishProviders === null || enabledPublishProviders.has(option.value),
+      ).toSorted((left, right) => {
         const leftReady = publishProviderReadiness(left.value).ready;
         const rightReady = publishProviderReadiness(right.value).ready;
         if (leftReady !== rightReady) {
@@ -531,7 +550,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
         }
         return left.label.localeCompare(right.label);
       }),
-    [publishProviderReadiness],
+    [enabledPublishProviders, publishProviderReadiness],
   );
   const firstReadyPublishProvider = sortedPublishProviderOptions.find(
     (option) => publishProviderReadiness(option.value).ready,
