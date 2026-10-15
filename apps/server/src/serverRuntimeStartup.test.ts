@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
+  DEFAULT_MODEL,
   DEFAULT_SERVER_SETTINGS,
   ProjectId,
   ProviderInstanceId,
@@ -46,6 +47,17 @@ import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
+
+it("auto-bootstraps on an instance this build enables by default", () => {
+  const selection = ServerRuntimeStartup.getAutoBootstrapThreadModelSelection();
+
+  assert.deepEqual(selection, {
+    instanceId: ProviderInstanceId.make("claudeAgent"),
+    model: "claude-fable-5-1",
+  });
+  // A Codex model slug on a Claude instance would be an unlaunchable pair.
+  assert.notStrictEqual(selection.model, DEFAULT_MODEL);
+});
 
 it.effect.each([
   "disabled-codex",
