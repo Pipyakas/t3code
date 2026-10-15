@@ -173,6 +173,9 @@ const PROVIDER_SETTINGS = providerClients.definitions.map((definition) => ({
 
 // Distance keeps a plain press from starting a drag; the handle owns the
 // pointer anyway, so selection clicks on the row are never contested.
+// Built-ins that start off and can be dropped from Settings > Providers.
+const REMOVABLE_BUILT_IN_DRIVERS: ReadonlySet<string> = new Set(["grok", "cursor"]);
+
 const PROVIDER_ROW_SENSORS = [
   { sensor: PointerSensor, options: { activationConstraint: { distance: 4 } } },
   { sensor: KeyboardSensor, options: { coordinateGetter: sortableKeyboardCoordinates } },
@@ -999,6 +1002,14 @@ export function EnvironmentProviderSettings({
   };
 
   const renderProviderInstance = (row: InstanceRow, mode: "list" | "editor") => {
+    // Grok and Cursor start off and leave the list once their saved settings
+    // are cleared, so removing one switched off is that reset. Providers in
+    // use, and those the list always shows, are never offered.
+    const isRemovableDefault =
+      row.isDefault &&
+      row.isDirty === true &&
+      REMOVABLE_BUILT_IN_DRIVERS.has(row.driver) &&
+      !resolveProviderInstanceEnabled(row.instance);
     const driverOption = providerClients.get(row.driver);
     const liveProvider = serverProviders.find(
       (candidate) => candidate.instanceId === row.instanceId,
@@ -1153,10 +1164,12 @@ export function EnvironmentProviderSettings({
           );
         }}
         onDelete={
-          mode === "editor" && !row.isDefault ? () => deleteProviderInstance(row) : undefined
+          mode === "editor" && (!row.isDefault || isRemovableDefault)
+            ? () => deleteProviderInstance(row)
+            : undefined
         }
         headerAction={
-          mode === "editor" && row.isDefault && row.isDirty ? (
+          mode === "editor" && row.isDefault && row.isDirty && !isRemovableDefault ? (
             <SettingResetButton
               label={`${resetLabel} provider settings`}
               onClick={() => resetDefaultInstance(row.driver)}
