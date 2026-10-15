@@ -139,8 +139,12 @@ it.effect.each([
           start: Effect.void,
           getSettings: Effect.succeed({
             ...DEFAULT_SERVER_SETTINGS,
+            // Codex starts off in this fork and is not the default provider, so the Codex
+            // scenarios name it as the default selection explicitly.
             defaultModelSelection:
-              scenario === "disabled-default" ? { instanceId, model: "custom-model" } : null,
+              scenario === "disabled-default"
+                ? { instanceId, model: "custom-model" }
+                : { instanceId, model: "gpt-5.5" },
             providerInstances: {
               [instanceId]: {
                 driver: ProviderDriverKind.make("codex"),

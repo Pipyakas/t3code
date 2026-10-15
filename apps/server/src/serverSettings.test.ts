@@ -448,6 +448,16 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect("deep merges nested settings updates without dropping siblings", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      // Codex is off by default in this fork; enable it so the
+      // selection under test is not replaced by the text-generation fallback.
+      yield* serverSettings.updateSettings({
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: true,
+          },
+        },
+      });
 
       yield* serverSettings.updateSettings({
         observability: { otlpTracesUrl: "http://localhost:4318/v1/traces" },
@@ -721,6 +731,16 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect("preserves model when switching providers via textGenerationModelSelection", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      // Codex is off by default in this fork; enable it so the
+      // selection under test is not replaced by the text-generation fallback.
+      yield* serverSettings.updateSettings({
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: true,
+          },
+        },
+      });
 
       yield* serverSettings.updateSettings({
         textGenerationModelSelection: {
@@ -1026,6 +1046,16 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect("drops stale text generation options when resetting model selection", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      // Codex is off by default in this fork; enable it so the
+      // selection under test is not replaced by the text-generation fallback.
+      yield* serverSettings.updateSettings({
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: true,
+          },
+        },
+      });
 
       yield* serverSettings.updateSettings({
         textGenerationModelSelection: {
@@ -1124,6 +1154,13 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           enabled: false,
           config: {},
         },
+        // OpenCode starts on in this fork, so an explicit legacy
+        // disable is kept as an instance instead of being dropped.
+        [ProviderInstanceId.make("opencode")]: {
+          driver: ProviderDriverKind.make("opencode"),
+          enabled: false,
+          config: {},
+        },
       });
 
       const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
@@ -1172,7 +1209,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           providers: { opencode: { serverUrl: "http://127.0.0.1:4096" }, cursor: {} },
           providerInstances: {
             cursor_work: { driver: "cursor", config: {} },
-            opencode_unused: { driver: "opencode", config: {} },
+            codex_unused: { driver: "codex", config: {} },
           },
         }),
       );
@@ -1192,7 +1229,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.isTrue(settings.providerInstances[ProviderInstanceId.make("cursor_work")]?.enabled);
 
       assert.isTrue(settings.providerInstances[ProviderInstanceId.make("cursor")]?.enabled);
-      const unused = settings.providerInstances[ProviderInstanceId.make("opencode_unused")];
+      const unused = settings.providerInstances[ProviderInstanceId.make("codex_unused")];
       assert.isDefined(unused);
       assert.isFalse(resolveProviderInstanceEnabled(unused));
     }).pipe(Effect.provide(layerServerSettings())),
