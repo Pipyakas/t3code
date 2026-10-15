@@ -5,11 +5,13 @@ import {
   type ServerProvider,
   type ServerSettings,
 } from "@t3tools/contracts";
+import { OpenCodeSettings } from "@t3tools/provider-opencode/settings";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
+const decodeOpenCodeSettings = Schema.decodeUnknownOption(OpenCodeSettings);
 const SAFE_SHELL_BINARY_PATTERN = /^[A-Za-z0-9_./:\\-]+$/;
 
 function quoteProviderBinary(
@@ -72,7 +74,12 @@ export function selectOnboardingProvidersByDriver(
   return providersByDriver;
 }
 
-// These need no Node/npm and install where provider maintenance recognizes native binaries.
+/**
+ * Official installers. Claude's and Codex's standalone installers land in the
+ * paths the server's provider maintenance recognizes as native, so the
+ * one-click updater in Settings keeps working. OpenCode's shell installer has
+ * no PowerShell equivalent, so Windows uses its npm package.
+ */
 const NATIVE_INSTALL_COMMANDS = {
   claudeAgent: {
     windows: "irm https://claude.ai/install.ps1 | iex",
@@ -81,6 +88,10 @@ const NATIVE_INSTALL_COMMANDS = {
   codex: {
     windows: "irm https://chatgpt.com/codex/install.ps1 | iex",
     posix: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+  },
+  opencode: {
+    windows: "npm install -g opencode-ai",
+    posix: "curl -fsSL https://opencode.ai/install | bash",
   },
 } as const;
 
@@ -109,6 +120,12 @@ export function resolveOnboardingProviderLoginCommand(
     const config = decodeCodexSettings(instance?.config ?? {});
     const binaryPath = Option.isSome(config) ? config.value.binaryPath : "codex";
     return `${quoteProviderBinary(binaryPath, "codex", platform)} login`;
+  }
+
+  if (provider.driver === "opencode") {
+    const config = decodeOpenCodeSettings(instance?.config ?? {});
+    const binaryPath = Option.isSome(config) ? config.value.binaryPath : "opencode";
+    return `${quoteProviderBinary(binaryPath, "opencode", platform)} auth login`;
   }
 
   return provider.driver;
