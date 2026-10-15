@@ -117,6 +117,7 @@ const startBesideBootService = Effect.fn("test.startBesideBootService")(function
       send: () => false,
       on: () => undefined,
       off: () => undefined,
+      requestShutdown: () => undefined,
     }),
     Effect.result,
   );
