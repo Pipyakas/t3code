@@ -238,12 +238,12 @@ async function setup() {
 }
 
 describe("EnvironmentProviderSettings routing", () => {
-  it("shows Codex and Claude while hiding untouched disabled provider slots", async () => {
+  it("shows Claude and OpenCode while hiding untouched disabled provider slots", async () => {
     await setup();
     await using _screen = await render(panel());
-    await expect.element(select("Codex")).toBeVisible();
     await expect.element(select("Claude")).toBeVisible();
-    for (const label of ["Cursor", "Grok", "Pi", "OpenCode", "Antigravity"]) {
+    await expect.element(select("OpenCode")).toBeVisible();
+    for (const label of ["Cursor", "Grok", "Pi", "Antigravity"]) {
       await expect.element(select(label)).not.toBeInTheDocument();
     }
   });

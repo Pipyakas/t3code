@@ -21,6 +21,15 @@ import { applyServerSettingsPatch } from "./serverSettings.ts";
 const projectId = ProjectId.make("project-a");
 const otherProjectId = ProjectId.make("project-b");
 
+/**
+ * Codex starts off in this fork, so a fixture that runs text generation on a
+ * Codex instance has to enable one rather than lean on the built-in default.
+ */
+const enabledCodexInstance = {
+  driver: ProviderDriverKind.make("codex"),
+  enabled: true,
+} as const;
+
 describe("resolveProjectSettings", () => {
   it("inherits every scopable key when the project has no overrides", () => {
     const resolved = resolveProjectSettings(DEFAULT_SERVER_SETTINGS, projectId);
@@ -83,6 +92,8 @@ describe("resolveProjectSettings", () => {
           driver: ProviderDriverKind.make("claudeAgent"),
           enabled: false,
         },
+        // The environment selection names codex; Codex starts off in this fork.
+        [ProviderInstanceId.make("codex")]: enabledCodexInstance,
       },
       projectSettingsOverrides: {
         [projectId]: { textGenerationModelSelection: disabledSelection },
@@ -101,8 +112,12 @@ describe("resolveProjectSettings", () => {
       defaultModelSelection: aggregateModel,
       defaultThreadEnvMode: "local" as const,
     };
+    // Codex starts off in this fork; the aggregate's model names a Codex instance.
+    const codexEnabled = {
+      providerInstances: { [ProviderInstanceId.make("codex")]: enabledCodexInstance },
+    };
     const unfolded = resolveProjectSettings(
-      { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: false },
+      { ...DEFAULT_SERVER_SETTINGS, ...codexEnabled, projectSettingsFolded: false },
       projectId,
       project,
     );
@@ -112,6 +127,7 @@ describe("resolveProjectSettings", () => {
     const overridden = resolveProjectSettings(
       {
         ...DEFAULT_SERVER_SETTINGS,
+        ...codexEnabled,
         projectSettingsFolded: false,
         projectSettingsOverrides: { [projectId]: { defaultThreadEnvMode: "worktree" } },
       },
@@ -120,7 +136,7 @@ describe("resolveProjectSettings", () => {
     );
     expect(overridden.settings.defaultThreadEnvMode).toBe("worktree");
     const folded = resolveProjectSettings(
-      { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: true },
+      { ...DEFAULT_SERVER_SETTINGS, ...codexEnabled, projectSettingsFolded: true },
       projectId,
       project,
     );
@@ -167,12 +183,17 @@ describe("resolveProjectSettings", () => {
     const settings = {
       ...DEFAULT_SERVER_SETTINGS,
       textGenerationModelSelection: createModelSelection(codex, "gpt-5"),
-      providerInstances: { [codexWork]: { driver: ProviderDriverKind.make("codex"), config: {} } },
+      providerInstances: {
+        [codexWork]: { driver: ProviderDriverKind.make("codex"), config: {}, enabled: true },
+      },
       projectSettingsOverrides: {
         [projectId]: {
           providerInstances: {
             [codex]: { enabled: false },
             [ProviderInstanceId.make("claudeAgent")]: { enabled: false },
+            // opencode is a default-enabled built-in in this fork, so this
+            // project has to turn it off too for "every built-in" to hold.
+            [ProviderInstanceId.make("opencode")]: { enabled: false },
           },
         },
       },
