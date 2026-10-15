@@ -162,6 +162,11 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   label: TrimmedNonEmptyString,
   platform: ExecutionEnvironmentPlatform,
   serverVersion: TrimmedNonEmptyString,
+  /** Fork builds only: the upstream release this build is based on, which
+      marks the server as a fork build whose own version is not comparable
+      with upstream versions. Absent on upstream builds. */
+  upstreamVersion: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Absent on hosts from before explicit orchestration protocol negotiation. */
   orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,
 });

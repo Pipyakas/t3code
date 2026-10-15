@@ -83,6 +83,7 @@ import {
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
   type ServerProvider,
+  type ExecutionEnvironmentDescriptor,
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
@@ -265,6 +266,10 @@ import {
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
+import {
+  descriptorForUpstreamClient,
+  recordUpstreamClientVersion,
+} from "./environment/forkVersionAdvertisement.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
@@ -662,6 +667,15 @@ function readClientConnectionOrigin(
       ? { appVersion }
       : {}),
   };
+}
+
+// Fork clients announce the upstream release they are based on; upstream
+// clients never send it.
+function readClientIsForkBuild(request: HttpServerRequest.HttpServerRequest): boolean {
+  const url = HttpServerRequest.toURL(request);
+  return (
+    Option.isSome(url) && (url.value.searchParams.get("clientUpstreamVersion")?.trim() ?? "") !== ""
+  );
 }
 
 // Client telemetry stays in this socket's RPC layer. It must not become a
@@ -1246,6 +1260,7 @@ export const layerWsRpc = (
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
+  clientIsForkBuild: boolean,
 ) =>
   Layer.effectContext(
     Effect.gen(function* () {
@@ -1737,6 +1752,29 @@ export const layerWsRpc = (
           ),
         );
 
+      const advertiseEnvironment = (environment: ExecutionEnvironmentDescriptor) =>
+        clientIsForkBuild ? environment : descriptorForUpstreamClient(environment);
+      const advertiseLifecycleEvent = (
+        event: ServerLifecycleStreamEvent,
+      ): ServerLifecycleStreamEvent =>
+        event.type === "welcome"
+          ? {
+              ...event,
+              payload: {
+                ...event.payload,
+                environment: advertiseEnvironment(event.payload.environment),
+              },
+            }
+          : event.type === "ready"
+            ? {
+                ...event,
+                payload: {
+                  ...event.payload,
+                  environment: advertiseEnvironment(event.payload.environment),
+                },
+              }
+            : event;
+
       const loadServerConfig = Effect.fn("ws.loadServerConfig")(function* (options: {
         readonly usageLimitsCommand: boolean;
         readonly workspaceSnapshotsOnDemand: boolean;
@@ -1752,7 +1790,7 @@ export const layerWsRpc = (
         const settings = ServerSettings.redactServerSettingsForClient(
           yield* serverSettings.getSettings,
         );
-        const environment = yield* serverEnvironment.getDescriptor;
+        const environment = advertiseEnvironment(yield* serverEnvironment.getDescriptor);
         const auth = yield* serverAuth.getDescriptor();
         const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
         const lastEventLoopStall = yield* eventLoopMonitor.latestNoticeableStall;
@@ -3234,7 +3272,9 @@ export const layerWsRpc = (
               const liveEvents = Stream.fromQueue(liveBuffer).pipe(
                 Stream.filter((event) => event.sequence > snapshot.sequence),
               );
-              return Stream.concat(rpcInitialItems(snapshotEvents), liveEvents);
+              return Stream.concat(rpcInitialItems(snapshotEvents), liveEvents).pipe(
+                Stream.map(advertiseLifecycleEvent),
+              );
             }),
           ),
         [WS_METHODS.subscribeAuthAccess]: (_input) =>
@@ -3339,6 +3379,10 @@ export const layer = Layer.unwrap(
         );
         const clientOrigin = readClientConnectionOrigin(request);
         const clientAnalyticsProps = readClientAnalyticsProps(request);
+        const clientIsForkBuild = readClientIsForkBuild(request);
+        if (!clientIsForkBuild && clientOrigin.appVersion !== undefined) {
+          recordUpstreamClientVersion(clientOrigin.appVersion);
+        }
         yield* sessions.recordClientConnection(session.sessionId, clientOrigin);
         yield* analytics.recordOwners(readClientOwners(request), "client");
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
@@ -3377,6 +3421,7 @@ export const layer = Layer.unwrap(
               clientAnalyticsProps,
               previewAutomationBroker,
               serverBrowser,
+              clientIsForkBuild,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
