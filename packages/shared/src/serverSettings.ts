@@ -407,6 +407,7 @@ export function applyServerSettingsPatch(
     setModelFavorites,
     setModelsHidden,
     setProviderModelOrder,
+    setProviderOrder,
     providerModelPreferences,
     automaticGitFetchInterval,
     providerHealthRefreshInterval,
@@ -508,11 +509,16 @@ export function applyServerSettingsPatch(
       },
     };
   }
+  // Whole-list replacement, unlike the per-model patches above: the client
+  // sends the complete arrangement it wants, so the stored prefix is swapped
+  // rather than merged entry by entry.
+  const providerOrder = setProviderOrder === undefined ? undefined : [...setProviderOrder.order];
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacementsBase = {
     ...next,
     favorites,
     providerModelPreferences: nextModelPreferences,
+    ...(providerOrder === undefined ? {} : { providerOrder }),
     ...(worktreeCleanupPatch === undefined
       ? {}
       : {
