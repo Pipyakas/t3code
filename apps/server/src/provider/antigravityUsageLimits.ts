@@ -279,11 +279,17 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     const summary = yield* fetchWindows("retrieveUserQuotaSummary", (response) =>
       decodeSummary(response).pipe(Effect.map(summaryWindows)),
     );
-    const windows = summary.length
-      ? summary
+    // Some accounts' summaries list only the shared Claude/GPT group; Gemini
+    // then comes from the per-model quotas.
+    const summaryHasGemini = summary.some((window) => window.id.startsWith("gemini-"));
+    const models = summaryHasGemini
+      ? []
       : yield* fetchWindows("fetchAvailableModels", (response) =>
           decodeModels(response).pipe(Effect.map(modelWindows)),
         );
+    const windows = summary.length
+      ? [...summary, ...models.filter((window) => window.id.startsWith("gemini-"))]
+      : models;
     if (windows.length === 0) {
       return makeUnavailableUsageLimits({
         checkedAt,
