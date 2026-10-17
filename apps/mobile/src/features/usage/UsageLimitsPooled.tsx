@@ -15,7 +15,6 @@ import {
 } from "@t3tools/shared/usageLimits";
 import {
   collectExternalUsageLinks,
-  collectLimitNotices,
   cursorUsageWindowDetails,
 } from "@t3tools/shared/usageLimitsCopy";
 import { msg, T, useGT, useMessages, Var } from "gt-react-native";
@@ -485,14 +484,12 @@ export function UsageLimitsSection({
   const pools = collectLimitPools(collectLimitAccounts(selected), now);
   const quotaSources = collectHttpQuotaSources(selected);
   const m = useMessages();
-  const notices = collectLimitNotices(selected, m);
   const externalLinks = collectExternalUsageLinks(selected, m);
   const colors = useProviderColors();
   const gt = useGT();
   return (
     <View className="gap-6">
       {pools.length === 0 &&
-      notices.length === 0 &&
       failedLabels.length === 0 &&
       externalLinks.length === 0 &&
       quotaSources.length === 0 ? (
@@ -577,7 +574,7 @@ export function UsageLimitsSection({
           </Pressable>
         </View>
       ))}
-      {notices.length > 0 || failedLabels.length > 0 ? (
+      {failedLabels.length > 0 ? (
         <View
           accessible
           accessibilityRole="alert"
@@ -590,11 +587,6 @@ export function UsageLimitsSection({
             tintColorClassName="accent-warning-foreground"
           />
           <View className="min-w-0 flex-1 gap-0.5">
-            {notices.map((notice) => (
-              <Text key={notice} className="text-sm font-t3-medium text-warning-foreground">
-                {notice}
-              </Text>
-            ))}
             {failedLabels.length > 0 ? (
               <Text className="text-sm font-t3-medium text-warning-foreground">
                 <T>
