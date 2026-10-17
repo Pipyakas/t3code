@@ -547,6 +547,19 @@ it.layer(
       }),
     );
 
+    it.effect("reports no subscription limits for accounts other than a ChatGPT login", () =>
+      Effect.gen(function* () {
+        for (const account of [null, { type: "apiKey" as const }]) {
+          const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({ account: { account, requiresOpenaiAuth: false } }),
+            ),
+          );
+          assert.strictEqual(status.usageLimits?.unavailable?.reason, "unsupported");
+        }
+      }),
+    );
+
     it.effect("returns an api key label for codex api key auth", () =>
       Effect.gen(function* () {
         const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>

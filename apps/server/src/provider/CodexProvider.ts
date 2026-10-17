@@ -559,8 +559,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
       ),
       // Usage is an enrichment: a failure or a slow answer degrades to "no
       // usage this probe" rather than costing the account and models.
-      // Only a ChatGPT login has subscription usage; API-key and custom
-      // providers answer the read with a JSON-RPC error.
+      // Only a ChatGPT login has subscription usage; see checkCodexProviderStatus.
       input.skipNativeUsage || accountResponse.account?.type !== "chatgpt"
         ? Effect.succeed(undefined)
         : client.request("account/rateLimits/read", null).pipe(
@@ -789,8 +788,11 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   const accountStatus = managedAuth
     ? { status: "ready" as const, auth: managedAuth, message: undefined }
     : accountProbeStatus(snapshot);
+  // Only a ChatGPT login has subscription usage. API-key, Bedrock and
+  // custom providers (no account at all) never report it, so they are not
+  // a failed read.
   const usageLimits =
-    snapshot.account.account?.type === "apiKey"
+    snapshot.account.account?.type !== "chatgpt"
       ? makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" })
       : snapshot.rateLimits === undefined || "failure" in snapshot.rateLimits
         ? makeUnavailableUsageLimits({
