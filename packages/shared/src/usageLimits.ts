@@ -327,37 +327,6 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
   return [...accounts.values()];
 }
 
-/**
- * What the pooled views cannot draw as a bar: a hub that failed to read, a
- * provider whose probe failed. Accounts that can never report (API keys)
- * are left out; there is nothing for the user to act on. The environment
- * is named only when more than one is connected.
- */
-export function collectLimitNotices(presentations: LimitPresentations): readonly string[] {
-  const label = (environmentLabel: string, subject: string) =>
-    presentations.size > 1 ? `${environmentLabel} · ${subject}` : subject;
-  const notices: string[] = [];
-  for (const presentation of presentations.values()) {
-    const environmentLabel = presentation.entry.target.label;
-    for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
-      // An account that can never report (API key) is left out; one that
-      // failed, or reported nothing at all, is worth a line.
-      if (provider.usageLimits?.unavailable?.reason === "unsupported") continue;
-      const notice = provider.usageLimits ? limitsNotice(provider.usageLimits) : null;
-      const name = provider.displayName?.trim() || String(provider.driver);
-      if (notice) notices.push(`${label(environmentLabel, name)}: ${notice}`);
-    }
-    for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
-      if (source.error) {
-        notices.push(`${label(environmentLabel, source.label)}: ${source.error}`);
-      } else if (source.accounts.length === 0) {
-        notices.push(`${label(environmentLabel, source.label)}: No accounts reported.`);
-      }
-    }
-  }
-  return notices;
-}
-
 export interface LimitPoolMember {
   readonly account: LimitAccount;
   readonly window: ServerProviderUsageWindow;

@@ -15,7 +15,6 @@ import {
   withUsageLimitsCommands,
   collectLimitAccounts,
   collectExternalUsageLinks,
-  collectLimitNotices,
   collectLimitPools,
   displayLimitWindows,
   elapsedShare,
@@ -1083,61 +1082,6 @@ describe("Cursor limit presentation", () => {
   });
 });
 
-describe("collectLimitNotices", () => {
-  const checkedAt = "2026-09-03T11:00:00.000Z";
-  const claude = ProviderDriverKind.make("claudeAgent");
-  const laptop = { entry: { target: { label: "Laptop" } } };
-  const hub = {
-    id: UsageLimitSourceId.make("hub"),
-    kind: "cliproxy" as const,
-    label: "hub",
-    checkedAt,
-    accounts: [],
-  };
-
-  it("names failures and silence, skips unsupported accounts, and labels environments only when several", () => {
-    const failed = provider({
-      instanceId: ProviderInstanceId.make("claude"),
-      driver: claude,
-      displayName: "Claude Max",
-      usageLimits: { checkedAt, windows: [], unavailable: { reason: "probeFailed" } },
-    });
-    const apiKey = provider({
-      instanceId: ProviderInstanceId.make("api"),
-      driver: claude,
-      usageLimits: { checkedAt, windows: [], unavailable: { reason: "unsupported" } },
-    });
-    const silent = provider({ usageLimits: { checkedAt, windows: [] } });
-    const one = new Map([
-      [
-        EnvironmentId.make("env-a"),
-        {
-          ...laptop,
-          serverConfig: {
-            providers: [failed, apiKey, silent],
-            usageLimitSources: [
-              hub,
-              { ...hub, id: UsageLimitSourceId.make("down"), label: "down", error: "ECONNREFUSED" },
-            ],
-          },
-        },
-      ],
-    ]);
-    expect(collectLimitNotices(one)).toEqual([
-      "Claude Max: Could not read limits.",
-      "codex: No limits reported.",
-      "hub: No accounts reported.",
-      "down: ECONNREFUSED",
-    ]);
-
-    one.set(EnvironmentId.make("env-b"), {
-      entry: { target: { label: "Desktop" } },
-      serverConfig: { providers: [], usageLimitSources: [] },
-    });
-    expect(collectLimitNotices(one)[0]).toBe("Laptop · Claude Max: Could not read limits.");
-  });
-});
-
 describe("/usage-limits", () => {
   const limits = { checkedAt: "2026-09-03T11:00:00.000Z", windows: [window] };
   const selected = provider({
@@ -1554,7 +1498,6 @@ describe("external usage settings", () => {
       },
     ]);
     expect(collectLimitAccounts(presentations)).toEqual([]);
-    expect(collectLimitNotices(presentations)).toEqual([]);
   });
   it("omits disabled, uninstalled and signed-out providers", () => {
     const managed = provider({
