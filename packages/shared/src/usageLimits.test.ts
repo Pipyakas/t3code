@@ -15,7 +15,6 @@ import {
   withUsageLimitsCommands,
   collectLimitAccounts,
   collectExternalUsageLinks,
-  collectLimitNotices,
   collectLimitPools,
   elapsedShare,
   exhaustedUsageWindow,
@@ -1498,7 +1497,6 @@ describe("external usage settings", () => {
       },
     ]);
     expect(collectLimitAccounts(presentations)).toEqual([]);
-    expect(collectLimitNotices(presentations)).toEqual([]);
   });
 });
 
