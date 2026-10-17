@@ -220,12 +220,18 @@ const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean =>
     );
   }
 
-  if (provider.driver === ProviderDriverKind.make("acpRegistry")) {
+  if (
+    provider.driver === ProviderDriverKind.make("acpRegistry") ||
+    provider.driver === ProviderDriverKind.make("claudeAgent")
+  ) {
     // ACP Registry discovery probes return the agent's complete inventory, so
     // a completed probe (ready and authenticated) replaces the model list —
     // otherwise agents that rename or collapse models leave stale entries
     // pinned forever through the snapshot cache. Readiness-only and failed
     // probe snapshots only know the "default" placeholder and stay partial.
+    // Claude is ready and authenticated only when Claude Code's initialization
+    // answered, and that answer lists every gateway-discovered model, so a
+    // model the gateway retired or renamed drops out the same way.
     return !(
       provider.installed &&
       provider.status === "ready" &&
