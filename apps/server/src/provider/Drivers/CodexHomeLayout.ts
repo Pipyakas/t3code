@@ -31,6 +31,9 @@ const KNOWN_SHARED_DIRECTORIES = [
 const PRIVATE_ENTRY_NAMES = new Set(["auth.json", "models_cache.json"]);
 // Finder maintains metadata separately for each directory, including shadow homes.
 const SHADOW_LOCAL_ENTRY_NAMES = new Set(["log", "memories", "tmp", ".DS_Store"]);
+// Codex's own log database. Codex recreates it in place, which turns a shared link into a
+// real file that then blocks every later materialization, and nothing reads it across homes.
+const SHADOW_LOCAL_LOG_DATABASE = /^logs_\d+\.sqlite(?:-wal|-shm)?$/;
 // Codex creates these runtime locks itself when it starts in a shadow home before the shared
 // home has one. They guard shared state, so a local copy is replaced with the shared link.
 const REPLACEABLE_SHARED_RUNTIME_ENTRIES = new Set(["mcp-oauth-locks", ".sqlite-maintenance.lock"]);
@@ -373,7 +376,11 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
   );
   const entries = new Set<string>(KNOWN_SHARED_DIRECTORIES);
   for (const entryName of sharedEntryNames) {
-    if (!PRIVATE_ENTRY_NAMES.has(entryName) && !SHADOW_LOCAL_ENTRY_NAMES.has(entryName)) {
+    if (
+      !PRIVATE_ENTRY_NAMES.has(entryName) &&
+      !SHADOW_LOCAL_ENTRY_NAMES.has(entryName) &&
+      !SHADOW_LOCAL_LOG_DATABASE.test(entryName)
+    ) {
       entries.add(entryName);
     }
   }
