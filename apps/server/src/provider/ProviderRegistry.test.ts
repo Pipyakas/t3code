@@ -975,6 +975,79 @@ it.layer(
       );
     });
 
+    describe("Claude gateway-discovered models", () => {
+      const builtIn = {
+        slug: "claude-opus-5-5",
+        name: "Claude Opus 5.5",
+        isCustom: false,
+        capabilities: null,
+      } as const;
+      const kept = {
+        slug: "anthropic-big-pickle",
+        name: "Big Pickle",
+        isCustom: false,
+        capabilities: null,
+      } as const;
+      const retired = {
+        slug: "anthropic-muse-spark-1.3-contributor-free",
+        name: "Muse Spark 1.3",
+        isCustom: false,
+        capabilities: null,
+      } as const;
+      const previousProvider = {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        driver: ProviderDriverKind.make("claudeAgent"),
+        status: "ready",
+        enabled: true,
+        installed: true,
+        auth: { status: "authenticated" },
+        checkedAt: "2026-10-17T00:00:00.000Z",
+        version: "2.3.0",
+        models: [builtIn, kept, retired],
+        slashCommands: [],
+        skills: [],
+      } as const satisfies ServerProvider;
+      const refreshedProvider = {
+        ...previousProvider,
+        checkedAt: "2026-10-17T00:01:00.000Z",
+        models: [builtIn, kept],
+      } satisfies ServerProvider;
+
+      it("drops models the gateway retired once Claude Code's initialization answers", () => {
+        assert.deepStrictEqual(
+          ProviderRegistry.mergeProviderSnapshot(previousProvider, refreshedProvider).models,
+          [builtIn, kept],
+        );
+      });
+
+      it("keeps discovered models while the probe is pending or failed", () => {
+        // A probe that never reached initialization only knows the catalog.
+        const unprobed = [
+          {
+            ...refreshedProvider,
+            status: "warning",
+            auth: { status: "unknown" },
+            models: [builtIn],
+          },
+          {
+            ...refreshedProvider,
+            status: "warning",
+            installed: false,
+            auth: { status: "unknown" },
+            models: [builtIn],
+          },
+          { ...refreshedProvider, status: "error", auth: { status: "unknown" }, models: [builtIn] },
+        ] satisfies ReadonlyArray<ServerProvider>;
+
+        for (const provider of unprobed) {
+          assert.deepStrictEqual(
+            ProviderRegistry.mergeProviderSnapshot(previousProvider, provider).models,
+            [builtIn, kept, retired],
+          );
+        }
+      });
+    });
+
     it("drops stale OpenCode models missing from a successful refresh", () => {
       const previousProvider = {
         instanceId: ProviderInstanceId.make("opencode"),
