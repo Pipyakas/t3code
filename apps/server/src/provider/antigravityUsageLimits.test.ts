@@ -263,6 +263,32 @@ describe("Antigravity subscription limits", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("takes Gemini from model quotas when the summary lists only Claude and GPT", () =>
+    Effect.gen(function* () {
+      const { probe } = yield* fixture({
+        summary: { groups: [summary.groups[1]] },
+        models: {
+          models: {
+            "gemini-a": {
+              modelProvider: "MODEL_PROVIDER_GOOGLE",
+              quotaInfo: { remainingFraction: 0.7, resetTime: "2026-10-10T12:00:00Z" },
+            },
+            "claude-a": { quotaInfo: { remainingFraction: 0.2 } },
+          },
+        },
+      });
+      const limits = yield* probe;
+      expect(limits.windows.map((window) => window.id).toSorted()).toEqual([
+        "3p-5h",
+        "3p-weekly",
+        "gemini-quota",
+      ]);
+      expect(
+        limits.windows.find((window) => window.id === "gemini-quota")?.usedPercent,
+      ).toBeCloseTo(30);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("skips disabled and missing fractions and clamps valid percentages", () =>
     Effect.gen(function* () {
       const { probe } = yield* fixture({
