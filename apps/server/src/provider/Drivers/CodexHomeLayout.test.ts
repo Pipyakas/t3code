@@ -1,3 +1,5 @@
+import * as NodeSqlite from "node:sqlite";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -7,11 +9,11 @@ import * as Schema from "effect/Schema";
 
 import { CodexSettings } from "@t3tools/contracts";
 import {
-  CodexShadowHomeEntryConflictError,
   CodexShadowHomePathConflictError,
   materializeCodexShadowHome,
   resolveCodexHomeLayout,
 } from "./CodexHomeLayout.ts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 const decodeCodexSettingsValue = Schema.decodeSync(CodexSettings);
 
@@ -37,6 +39,18 @@ const writeTextFile = Effect.fn("CodexHomeLayout.test.writeTextFile")(function* 
   yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
   yield* fileSystem.writeFileString(filePath, contents);
 });
+
+const readNotes = (databasePath: string): ReadonlyArray<string> => {
+  const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
+  try {
+    return database
+      .prepare("SELECT body FROM notes ORDER BY id")
+      .all()
+      .map((row) => String(row.body));
+  } finally {
+    database.close();
+  }
+};
 
 it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
   describe("resolveCodexHomeLayout", () => {
@@ -262,7 +276,7 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
     );
 
     it.effect.skipIf(!symlinksSupported)(
-      "accepts Codex-created shadow-local runtime directories",
+      "accepts Codex-created shadow-local runtime directories and log databases",
       () =>
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem;
@@ -279,6 +293,10 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
           yield* fileSystem.makeDirectory(path.join(shadowHome, "log"), { recursive: true });
           yield* fileSystem.makeDirectory(path.join(shadowHome, "memories"), { recursive: true });
           yield* fileSystem.makeDirectory(path.join(shadowHome, "tmp"), { recursive: true });
+          yield* writeTextFile(path.join(sharedHome, "logs_2.sqlite"), "shared\n");
+          yield* writeTextFile(path.join(sharedHome, "logs_2.sqlite-wal"), "shared\n");
+          yield* writeTextFile(path.join(shadowHome, "logs_2.sqlite"), "shadow\n");
+          yield* writeTextFile(path.join(shadowHome, "logs_2.sqlite-wal"), "shadow\n");
 
           const layout = yield* resolveCodexHomeLayout(
             decodeCodexSettings({
@@ -304,6 +322,11 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
           expect(logLinkResult._tag).toBe("Failure");
           expect(memoriesLinkResult._tag).toBe("Failure");
           expect(tmpLinkResult._tag).toBe("Failure");
+          for (const logDatabase of ["logs_2.sqlite", "logs_2.sqlite-wal"]) {
+            expect(yield* fileSystem.readFileString(path.join(shadowHome, logDatabase))).toBe(
+              "shadow\n",
+            );
+          }
         }),
     );
 
@@ -331,15 +354,17 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
     );
 
     it.effect.skipIf(!symlinksSupported)(
-      "rejects shared entries that already exist in the shadow home as real files",
+      "keeps a real shadow file instead of failing when a shared entry has one",
       () =>
         Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
           const sharedHome = yield* makeTempDir("t3code-codex-shared-");
           const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
           const shadowHome = path.join(shadowRoot, "shadow");
           yield* writeTextFile(path.join(sharedHome, "config.toml"), 'model = "gpt-5-codex"\n');
           yield* writeTextFile(path.join(shadowHome, "config.toml"), 'model = "local"\n');
+          yield* fileSystem.makeDirectory(path.join(sharedHome, "sessions"));
 
           const layout = yield* resolveCodexHomeLayout(
             decodeCodexSettings({
@@ -348,18 +373,114 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
             }),
           );
 
-          const error = yield* materializeCodexShadowHome(layout).pipe(Effect.flip);
+          yield* materializeCodexShadowHome(layout);
 
-          expect(error).toBeInstanceOf(CodexShadowHomeEntryConflictError);
-          expect(error).toMatchObject({
-            sharedHomePath: sharedHome,
-            effectiveHomePath: shadowHome,
-            entryName: "config.toml",
-            linkPath: path.join(shadowHome, "config.toml"),
-            targetPath: path.join(sharedHome, "config.toml"),
-          });
-          expect(error.message).toBe(
-            `Cannot create Codex shadow home entry 'config.toml' because '${path.join(shadowHome, "config.toml")}' already exists and is not a symlink.`,
+          expect(yield* fileSystem.readFileString(path.join(shadowHome, "config.toml"))).toBe(
+            'model = "local"\n',
+          );
+          expect(yield* fileSystem.readLink(path.join(shadowHome, "sessions"))).toBe(
+            path.join(sharedHome, "sessions"),
+          );
+        }),
+    );
+
+    it.effect.skipIf(!symlinksSupported)(
+      "gives a Windows shadow home its own snapshot of each shared database",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+          const shadowHome = path.join(shadowRoot, "shadow");
+          const sharedState = path.join(sharedHome, "state_5.sqlite");
+          const shadowState = path.join(shadowHome, "state_5.sqlite");
+
+          // A writer holding the shared database open keeps its last commit in the WAL.
+          const writer = new NodeSqlite.DatabaseSync(sharedState);
+          yield* Effect.addFinalizer(() => Effect.sync(() => writer.close()));
+          writer.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0");
+          writer.exec("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)");
+          writer.exec("INSERT INTO notes (body) VALUES ('checkpointed')");
+          writer.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+          writer.exec("INSERT INTO notes (body) VALUES ('in the wal')");
+
+          // Links an older build left behind, sidecars included.
+          yield* fileSystem.makeDirectory(shadowHome, { recursive: true });
+          for (const suffix of ["", "-wal", "-shm"]) {
+            yield* fileSystem.symlink(`${sharedState}${suffix}`, `${shadowState}${suffix}`);
+          }
+          // A database the shadow home already owns stays as it is.
+          yield* writeTextFile(path.join(sharedHome, "goals_1.sqlite"), "shared\n");
+          yield* writeTextFile(path.join(shadowHome, "goals_1.sqlite"), "own\n");
+          yield* writeTextFile(path.join(sharedHome, "logs_2.sqlite"), "shared\n");
+          yield* writeTextFile(path.join(sharedHome, ".sqlite-maintenance.lock"), "");
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+              shadowHomePath: shadowHome,
+            }),
+          );
+
+          yield* materializeCodexShadowHome(layout).pipe(
+            Effect.provideService(HostProcess.Platform, "win32"),
+          );
+
+          const stateLink = yield* fileSystem.readLink(shadowState).pipe(Effect.result);
+          expect(stateLink._tag).toBe("Failure");
+          expect(readNotes(shadowState)).toEqual(["checkpointed", "in the wal"]);
+          for (const suffix of ["-wal", "-shm"]) {
+            const sidecarLink = yield* fileSystem
+              .readLink(`${shadowState}${suffix}`)
+              .pipe(Effect.result);
+            expect(sidecarLink._tag).toBe("Failure");
+          }
+          expect(yield* fileSystem.exists(`${shadowState}.t3-snapshot`)).toBe(false);
+          expect(readNotes(sharedState)).toEqual(["checkpointed", "in the wal"]);
+          expect(yield* fileSystem.readFileString(path.join(shadowHome, "goals_1.sqlite"))).toBe(
+            "own\n",
+          );
+          expect(yield* fileSystem.exists(path.join(shadowHome, "logs_2.sqlite"))).toBe(false);
+          expect(
+            yield* fileSystem.readLink(path.join(shadowHome, ".sqlite-maintenance.lock")),
+          ).toBe(path.join(sharedHome, ".sqlite-maintenance.lock"));
+        }),
+    );
+
+    it.effect.skipIf(!symlinksSupported)(
+      "keeps the shared link when a Windows shadow home cannot copy a database",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+          const shadowHome = path.join(shadowRoot, "shadow");
+          yield* writeTextFile(path.join(sharedHome, "state_5.sqlite"), "not a database\n");
+          yield* fileSystem.makeDirectory(path.join(sharedHome, "sessions"));
+          yield* fileSystem.makeDirectory(shadowHome, { recursive: true });
+          yield* fileSystem.symlink(
+            path.join(sharedHome, "state_5.sqlite"),
+            path.join(shadowHome, "state_5.sqlite"),
+          );
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+              shadowHomePath: shadowHome,
+            }),
+          );
+
+          yield* materializeCodexShadowHome(layout).pipe(
+            Effect.provideService(HostProcess.Platform, "win32"),
+          );
+
+          expect(yield* fileSystem.readLink(path.join(shadowHome, "state_5.sqlite"))).toBe(
+            path.join(sharedHome, "state_5.sqlite"),
+          );
+          expect(yield* fileSystem.readLink(path.join(shadowHome, "sessions"))).toBe(
+            path.join(sharedHome, "sessions"),
           );
         }),
     );
