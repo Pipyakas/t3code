@@ -222,7 +222,7 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
     );
 
     it.effect.skipIf(!symlinksSupported)(
-      "accepts Codex-created shadow-local runtime directories",
+      "accepts Codex-created shadow-local runtime directories and log databases",
       () =>
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem;
@@ -239,6 +239,10 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
           yield* fileSystem.makeDirectory(path.join(shadowHome, "log"), { recursive: true });
           yield* fileSystem.makeDirectory(path.join(shadowHome, "memories"), { recursive: true });
           yield* fileSystem.makeDirectory(path.join(shadowHome, "tmp"), { recursive: true });
+          yield* writeTextFile(path.join(sharedHome, "logs_2.sqlite"), "shared\n");
+          yield* writeTextFile(path.join(sharedHome, "logs_2.sqlite-wal"), "shared\n");
+          yield* writeTextFile(path.join(shadowHome, "logs_2.sqlite"), "shadow\n");
+          yield* writeTextFile(path.join(shadowHome, "logs_2.sqlite-wal"), "shadow\n");
 
           const layout = yield* resolveCodexHomeLayout(
             decodeCodexSettings({
@@ -264,6 +268,11 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
           expect(logLinkResult._tag).toBe("Failure");
           expect(memoriesLinkResult._tag).toBe("Failure");
           expect(tmpLinkResult._tag).toBe("Failure");
+          for (const logDatabase of ["logs_2.sqlite", "logs_2.sqlite-wal"]) {
+            expect(yield* fileSystem.readFileString(path.join(shadowHome, logDatabase))).toBe(
+              "shadow\n",
+            );
+          }
         }),
     );
 
