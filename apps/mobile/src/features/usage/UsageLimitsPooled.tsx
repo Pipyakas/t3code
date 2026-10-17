@@ -4,7 +4,6 @@ import { EnvironmentId } from "@t3tools/contracts";
 import {
   collectLimitAccounts,
   collectExternalUsageLinks,
-  collectLimitNotices,
   collectLimitPools,
   cursorUsageWindowDetails,
   displayLimitWindows,
@@ -416,7 +415,6 @@ export function UsageLimitsSection({
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
   const pools = collectLimitPools(collectLimitAccounts(selected), now);
-  const notices = collectLimitNotices(selected);
   const externalLinks = collectExternalUsageLinks(selected);
   const colors = useProviderColors();
   const cursorPromptAt =
@@ -427,7 +425,6 @@ export function UsageLimitsSection({
   return (
     <View className="gap-6">
       {pools.length === 0 &&
-      notices.length === 0 &&
       failedLabels.length === 0 &&
       !cursorPrompt &&
       externalLinks.length === 0 ? (
@@ -488,7 +485,7 @@ export function UsageLimitsSection({
           </Pressable>
         </View>
       ))}
-      {notices.length > 0 || failedLabels.length > 0 ? (
+      {failedLabels.length > 0 ? (
         <View
           accessible
           accessibilityRole="alert"
@@ -501,16 +498,9 @@ export function UsageLimitsSection({
             tintColorClassName="accent-warning-foreground"
           />
           <View className="min-w-0 flex-1 gap-0.5">
-            {notices.map((notice) => (
-              <Text key={notice} className="text-sm font-t3-medium text-warning-foreground">
-                {notice}
-              </Text>
-            ))}
-            {failedLabels.length > 0 ? (
-              <Text className="text-sm font-t3-medium text-warning-foreground">
-                {failedLabels.join(", ")} could not refresh limits. Showing the last known values.
-              </Text>
-            ) : null}
+            <Text className="text-sm font-t3-medium text-warning-foreground">
+              {failedLabels.join(", ")} could not refresh limits. Showing the last known values.
+            </Text>
           </View>
         </View>
       ) : null}
