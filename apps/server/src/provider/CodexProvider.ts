@@ -556,7 +556,9 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
       ),
       // Usage is an enrichment: a failure or a slow answer degrades to "no
       // usage this probe" rather than costing the account and models.
-      input.skipNativeUsage
+      // Only a ChatGPT login has subscription usage; API-key and custom
+      // providers answer the read with a JSON-RPC error.
+      input.skipNativeUsage || accountResponse.account?.type !== "chatgpt"
         ? // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
           Effect.succeed(undefined)
         : withCodexDiscoveryDeadline(
