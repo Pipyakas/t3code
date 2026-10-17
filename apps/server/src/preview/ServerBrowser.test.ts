@@ -82,7 +82,15 @@ function makeSession(frame?: ReturnType<typeof makeFrame>) {
       if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { pageX: 0, pageY: 0 } };
       if (method === "Page.captureScreenshot") return { data: "ZnJhbWU=" };
       if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+      // Snapshots read password fields from their own isolated world in each frame.
+      if (method === "Page.createIsolatedWorld") {
+        return {
+          executionContextId: (input as { worldName?: string }).worldName === "t3-preview" ? 1 : 7,
+        };
+      }
+      if (method === "Runtime.evaluate" && (input as { contextId?: number }).contextId === 1) {
+        return { result: { value: [] } };
+      }
       if (method === "Page.addScriptToEvaluateOnNewDocument") frame?.recording.resolve();
       // A copy or cut key copies keyCopy in the focused frame, or the page's process if none;
       // one that copies nothing leaves the frames as they were.
