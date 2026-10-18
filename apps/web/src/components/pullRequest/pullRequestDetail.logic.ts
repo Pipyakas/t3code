@@ -1361,7 +1361,7 @@ export function canDeletePullRequestBranch(
   );
 }
 
-type SnapshotStorage = Pick<Storage, "getItem" | "setItem">;
+type SnapshotStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export function resolvePullRequestReferenceHost(
   reference: PullRequestRef,
@@ -1418,17 +1418,38 @@ export function readPullRequestDetailSnapshot(
   }
 }
 
+// Snapshot keys in the order they were last written, oldest first.
+const PULL_REQUEST_DETAIL_SNAPSHOT_INDEX_KEY = "t3.pullRequests.recentDetails";
+const PULL_REQUEST_DETAIL_SNAPSHOT_LIMIT = 20;
+
+function readPullRequestDetailSnapshotIndex(storage: SnapshotStorage): string[] {
+  try {
+    const keys: unknown = JSON.parse(
+      storage.getItem(PULL_REQUEST_DETAIL_SNAPSHOT_INDEX_KEY) ?? "[]",
+    );
+    return Array.isArray(keys) ? keys.filter((key): key is string => typeof key === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+// Keeps the snapshots of the 20 most recently saved pull requests and removes older ones.
 export function writePullRequestDetailSnapshot(
   storage: SnapshotStorage | undefined,
   environmentId: string,
   reference: PullRequestDetailSnapshotRef,
   detail: PullRequestDetail,
 ): void {
+  if (!storage) return;
   try {
-    storage?.setItem(
-      pullRequestDetailSnapshotKey(environmentId, reference),
-      JSON.stringify(detail),
-    );
+    const key = pullRequestDetailSnapshotKey(environmentId, reference);
+    const recent = readPullRequestDetailSnapshotIndex(storage).filter((entry) => entry !== key);
+    recent.push(key);
+    for (const evicted of recent.splice(0, recent.length - PULL_REQUEST_DETAIL_SNAPSHOT_LIMIT)) {
+      storage.removeItem(evicted);
+    }
+    storage.setItem(PULL_REQUEST_DETAIL_SNAPSHOT_INDEX_KEY, JSON.stringify(recent));
+    storage.setItem(key, JSON.stringify(detail));
   } catch {
     // Quota or a private-mode store: the next open waits on the live read, which is the
     // cold start this snapshot exists to avoid, not a failure of its own.
