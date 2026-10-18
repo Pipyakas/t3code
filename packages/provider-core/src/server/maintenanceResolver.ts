@@ -338,7 +338,8 @@ export function parseHomebrewLatestVersion(
     ownership.kind === "formula"
       ? decoded.value.formulae?.[0]?.versions?.stable
       : decoded.value.casks?.[0]?.version?.split(",", 1)[0];
-  return nonEmptyString(raw);
+  const version = nonEmptyString(raw);
+  return version === "latest" ? null : version;
 }
 
 /** Run `brew <args>` and return stdout, or null on failure, timeout, or oversized output. */
