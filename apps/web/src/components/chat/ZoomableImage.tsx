@@ -13,6 +13,8 @@ import {
   windowControlsOverlayHeight,
 } from "../../lib/windowControlsOverlay";
 
+import { AttachmentImage } from "../media/AttachmentImage";
+
 const MAX_ZOOM = 8;
 
 // The viewer lays out below the native caption strip so its controls never share a row with
@@ -30,11 +32,13 @@ export interface ZoomableImageHandle {
 export function ZoomableImage({
   src,
   name,
+  mimeType,
   onError,
   ref,
 }: {
   src: string;
   name: string;
+  mimeType?: string | undefined;
   onError: () => void;
   ref?: Ref<ZoomableImageHandle>;
 }) {
@@ -236,7 +240,9 @@ export function ZoomableImage({
           setDragging(false);
         }}
       >
-        <img
+        <AttachmentImage
+          name={name}
+          mimeType={mimeType}
           src={src}
           alt={name}
           draggable={false}
