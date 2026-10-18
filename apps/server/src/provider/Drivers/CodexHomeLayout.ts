@@ -100,20 +100,6 @@ export class CodexShadowHomePathConflictError extends Schema.TaggedError<CodexSh
   }
 }
 
-export class CodexShadowHomeEntryConflictError extends Schema.TaggedError<CodexShadowHomeEntryConflictError>()(
-  "CodexShadowHomeEntryConflictError",
-  {
-    ...CodexShadowHomeContext,
-    entryName: Schema.String,
-    linkPath: Schema.String,
-    targetPath: Schema.String,
-  },
-) {
-  override get message(): string {
-    return `Cannot create Codex shadow home entry '${this.entryName}' because '${this.linkPath}' already exists and is not a symlink.`;
-  }
-}
-
 export class CodexShadowHomePrivateEntrySymlinkError extends Schema.TaggedError<CodexShadowHomePrivateEntrySymlinkError>()(
   "CodexShadowHomePrivateEntrySymlinkError",
   {
@@ -130,7 +116,6 @@ export class CodexShadowHomePrivateEntrySymlinkError extends Schema.TaggedError<
 export const CodexShadowHomeError = Schema.Union([
   CodexShadowHomeFileSystemError,
   CodexShadowHomePathConflictError,
-  CodexShadowHomeEntryConflictError,
   CodexShadowHomePrivateEntrySymlinkError,
 ]);
 export type CodexShadowHomeError = typeof CodexShadowHomeError.Type;
@@ -248,13 +233,14 @@ const ensureSymlink = Effect.fn("CodexHomeLayout.ensureSymlink")(function* (inpu
 
   if (state._tag === "NotSymlink") {
     if (!REPLACEABLE_SHARED_RUNTIME_ENTRIES.has(input.entryName)) {
-      return yield* new CodexShadowHomeEntryConflictError({
-        sharedHomePath: input.sharedHomePath,
-        effectiveHomePath: input.effectiveHomePath,
+      // Something already wrote a real file here. Keep it rather than fail: a shadow home that
+      // cannot be materialized leaves the provider unusable until it is repaired by hand.
+      yield* Effect.logWarning("Codex shadow home keeps a local entry instead of the shared link", {
         entryName: input.entryName,
-        linkPath: link,
-        targetPath: target,
+        path: link,
+        sharedPath: target,
       });
+      return;
     }
 
     yield* input.fileSystem.remove(link, { recursive: true }).pipe(
