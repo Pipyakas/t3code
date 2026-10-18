@@ -1,4 +1,6 @@
 import { ProviderDriverKind, type CodexSettings } from "@t3tools/contracts";
+import * as NodeSqlite from "node:sqlite";
+
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -34,6 +36,13 @@ const SHADOW_LOCAL_ENTRY_NAMES = new Set(["log", "memories", "tmp", ".DS_Store"]
 // Codex's own log database. Codex recreates it in place, which turns a shared link into a
 // real file that then blocks every later materialization, and nothing reads it across homes.
 const SHADOW_LOCAL_LOG_DATABASE = /^logs_\d+\.sqlite(?:-wal|-shm)?$/;
+// Codex's other SQLite databases and their sidecars. On Windows SQLite keeps a database's
+// -wal/-shm sidecars beside the path it was opened by, not beside a symlink's target, so a
+// shadow home sharing one through a link keeps its own WAL next to the shared one's and the
+// two corrupt the database. There every home gets its own copy instead.
+const SQLITE_DATABASE_ENTRY = /\.sqlite(?:-wal|-shm|-journal)?$/;
+const SQLITE_DATABASE_FILE = /\.sqlite$/;
+const SQLITE_SIDECAR_SUFFIXES = ["-wal", "-shm", "-journal"] as const;
 // Codex creates these runtime locks itself when it starts in a shadow home before the shared
 // home has one. They guard shared state, so a local copy is replaced with the shared link.
 const REPLACEABLE_SHARED_RUNTIME_ENTRIES = new Set(["mcp-oauth-locks", ".sqlite-maintenance.lock"]);
@@ -78,7 +87,15 @@ export class CodexShadowHomeFileSystemError extends Schema.TaggedError<CodexShad
   "CodexShadowHomeFileSystemError",
   {
     ...CodexShadowHomeContext,
-    operation: Schema.Literals(["readLink", "makeDirectory", "readDirectory", "remove", "symlink"]),
+    operation: Schema.Literals([
+      "readLink",
+      "makeDirectory",
+      "readDirectory",
+      "remove",
+      "symlink",
+      "copyDatabase",
+      "rename",
+    ]),
     path: Schema.String,
     targetPath: Schema.optional(Schema.String),
     entryName: Schema.optional(Schema.String),
@@ -282,6 +299,82 @@ const ensureSymlink = Effect.fn("CodexHomeLayout.ensureSymlink")(function* (inpu
   }
 });
 
+// Replaces a database the shadow home shares through a link (or lacks) with its own snapshot.
+// `VACUUM INTO` copies a consistent snapshot even while Codex writes the source. A real WAL
+// beside the link holds this home's newest commits, so that view is copied rather than the
+// shared one. A database the shadow home already owns is left alone.
+const localizeDatabase = Effect.fn("CodexHomeLayout.localizeDatabase")(function* (input: {
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly sharedHomePath: string;
+  readonly effectiveHomePath: string;
+  readonly entryName: string;
+}): Effect.fn.Return<void, CodexShadowHomeError, Path.Path> {
+  const path = yield* Path.Path;
+  const shadowDatabase = path.join(input.effectiveHomePath, input.entryName);
+  const state = yield* readLinkState({ ...input, linkPath: shadowDatabase });
+  if (state._tag === "NotSymlink") return;
+
+  const walState = yield* readLinkState({ ...input, linkPath: `${shadowDatabase}-wal` });
+  const source =
+    state._tag === "Symlink" && walState._tag === "NotSymlink"
+      ? shadowDatabase
+      : path.join(input.sharedHomePath, input.entryName);
+  const snapshot = `${shadowDatabase}.t3-snapshot`;
+  const remove = (filePath: string) =>
+    input.fileSystem.remove(filePath, { force: true }).pipe(
+      Effect.catchTags({
+        PlatformError: (cause) =>
+          new CodexShadowHomeFileSystemError({
+            sharedHomePath: input.sharedHomePath,
+            effectiveHomePath: input.effectiveHomePath,
+            operation: "remove",
+            path: filePath,
+            entryName: input.entryName,
+            cause,
+          }),
+      }),
+    );
+
+  yield* remove(snapshot);
+  yield* Effect.try({
+    try: () => {
+      const database = new NodeSqlite.DatabaseSync(source, { readOnly: true });
+      try {
+        database.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+      } finally {
+        database.close();
+      }
+    },
+    catch: (cause) =>
+      new CodexShadowHomeFileSystemError({
+        sharedHomePath: input.sharedHomePath,
+        effectiveHomePath: input.effectiveHomePath,
+        operation: "copyDatabase",
+        path: source,
+        targetPath: snapshot,
+        entryName: input.entryName,
+        cause,
+      }),
+  });
+  for (const suffix of ["", ...SQLITE_SIDECAR_SUFFIXES]) {
+    yield* remove(`${shadowDatabase}${suffix}`);
+  }
+  yield* input.fileSystem.rename(snapshot, shadowDatabase).pipe(
+    Effect.catchTags({
+      PlatformError: (cause) =>
+        new CodexShadowHomeFileSystemError({
+          sharedHomePath: input.sharedHomePath,
+          effectiveHomePath: input.effectiveHomePath,
+          operation: "rename",
+          path: snapshot,
+          targetPath: shadowDatabase,
+          entryName: input.entryName,
+          cause,
+        }),
+    }),
+  );
+});
+
 const ensureShadowAuthIsPrivate = Effect.fn("CodexHomeLayout.ensureShadowAuthIsPrivate")(
   function* (input: {
     readonly fileSystem: FileSystem.FileSystem;
@@ -322,6 +415,7 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
 
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const localDatabases = yield* HostProcess.isWindows;
 
   const makeDirectory = (directoryPath: string) =>
     fileSystem.makeDirectory(directoryPath, { recursive: true }).pipe(
@@ -365,10 +459,36 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
     if (
       !PRIVATE_ENTRY_NAMES.has(entryName) &&
       !SHADOW_LOCAL_ENTRY_NAMES.has(entryName) &&
-      !SHADOW_LOCAL_LOG_DATABASE.test(entryName)
+      !SHADOW_LOCAL_LOG_DATABASE.test(entryName) &&
+      !(localDatabases && SQLITE_DATABASE_ENTRY.test(entryName))
     ) {
       entries.add(entryName);
     }
+  }
+
+  if (localDatabases) {
+    yield* Effect.forEach(
+      sharedEntryNames.filter(
+        (entryName) =>
+          SQLITE_DATABASE_FILE.test(entryName) && !SHADOW_LOCAL_LOG_DATABASE.test(entryName),
+      ),
+      (entryName) =>
+        localizeDatabase({
+          fileSystem,
+          sharedHomePath: layout.sharedHomePath,
+          effectiveHomePath,
+          entryName,
+        }).pipe(
+          // Retried on the next materialization, e.g. once a running Codex releases the files.
+          Effect.catch((error) =>
+            Effect.logWarning("Codex shadow home could not take its own database copy", {
+              entryName,
+              error: error.message,
+            }),
+          ),
+        ),
+      { discard: true },
+    );
   }
 
   yield* Effect.forEach(
