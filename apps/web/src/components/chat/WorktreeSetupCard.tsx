@@ -397,8 +397,6 @@ export function WorktreeSetupCard({
         <p className="mt-1 ml-8 text-xs text-muted-foreground">{snapshot.error}</p>
       ) : null}
 
-      {detailsOpen ? <SetupDetails snapshot={snapshot} /> : null}
-
       {/* Indented so the first label lines up with the stage labels: the icon
           column, minus the xs button's own horizontal padding. */}
       <div className="mt-0.5 ml-[calc(--spacing(6)+2px-(--spacing(2)-1px))] flex flex-wrap items-center gap-0.5">
@@ -431,6 +429,7 @@ export function WorktreeSetupCard({
           </Button>
         ) : null}
       </div>
+      {detailsOpen ? <SetupDetails snapshot={snapshot} /> : null}
     </section>
   );
 }
