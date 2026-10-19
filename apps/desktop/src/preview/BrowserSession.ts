@@ -33,7 +33,6 @@ export type BrowserSessionPartitionNamespace = "profile";
 const ALLOWED_PREVIEW_PERMISSIONS: ReadonlySet<string> = new Set([
   "clipboard-read",
   "clipboard-sanitized-write",
-  "notifications",
   "geolocation",
   // The Fullscreen API. `DesktopWindow` disables HTML fullscreen window resizing
   // for the app window and every preview guest, so a page that goes fullscreen
@@ -43,6 +42,8 @@ const ALLOWED_PREVIEW_PERMISSIONS: ReadonlySet<string> = new Set([
   // and silently granting it would hand every page the user's installed-font
   // fingerprint (and font file bytes via FontData.blob()). The app's own font
   // picker runs in the main window session, which is unaffected by this list.
+  // Deliberately NOT notifications: a page could post OS notifications branded
+  // as T3 Code. T3's own come from the app window on the default session.
 ]);
 
 /**
