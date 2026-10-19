@@ -284,7 +284,7 @@ describe("buildNativeReviewDiffData row bound", () => {
     expect(hugeRows.at(-2)).toMatchObject({ kind: "line", newLineNumber: 1_999 });
     expect(hugeRows.at(-1)).toMatchObject({
       kind: "notice",
-      text: "This diff is too large to show in full; counts include all changes.",
+      text: "This diff is too large to show in full.",
     });
     const ordinaryRows = data.rows.filter((row) => row.fileId === ordinaryHeader?.fileId);
     expect(ordinaryRows.filter((row) => row.kind === "line")).toHaveLength(1_000);
