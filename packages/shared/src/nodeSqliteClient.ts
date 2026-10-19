@@ -20,6 +20,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
+import * as Scheduler from "effect/Scheduler";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Context from "effect/Context";
@@ -27,7 +28,7 @@ import * as Stream from "effect/Stream";
 import * as Tracer from "effect/Tracer";
 import * as Reactivity from "effect/reactivity/Reactivity";
 import * as Client from "effect/sql/SqlClient";
-import type { Connection } from "effect/sql/SqlConnection";
+import type { Borrower, Connection } from "effect/sql/SqlConnection";
 import { SqlError, classifySqliteError } from "effect/sql/SqlError";
 import * as Statement from "effect/sql/Statement";
 
@@ -97,10 +98,9 @@ const annotateAcquired = (fiber: Fiber.Fiber<unknown, unknown>, acquired: Acquir
  * connection before it makes the `sql.transaction` span current, so the acquire
  * leaves its result here and the transaction body puts it on the span.
  */
-const TransactionAcquire = Context.Reference<{ acquired?: Acquired } | undefined>(
-  "@t3tools/shared/nodeSqliteClient/TransactionAcquire",
-  { defaultValue: () => undefined },
-);
+const TransactionAcquire = Context.Reference<
+  { acquired?: Acquired; restore: typeof Effect.interruptible | undefined } | undefined
+>("@t3tools/shared/nodeSqliteClient/TransactionAcquire", { defaultValue: () => undefined });
 
 export class UnsupportedNodeSqliteVersionError extends Schema.TaggedError<UnsupportedNodeSqliteVersionError>()(
   "UnsupportedNodeSqliteVersionError",
@@ -837,46 +837,51 @@ const make = Effect.fn("makeWithDatabase")(function* (
     lockWaitMs: Number((clock.monotonicTimeNanosUnsafe() - start) / 1000n) / 1000,
   });
 
-  const acquirer = Effect.flatMap(route, (target) =>
-    Effect.withFiber((fiber) => {
-      // The statement's span is current here only when it propagates, which
-      // Statement skips while tracing is off. Otherwise the current span is
-      // the caller's, so leave it alone.
-      if (
-        !fiber.getRef(References.TracerEnabled) ||
-        !fiber.getRef(Statement.SpanPropagationEnabled)
-      ) {
-        return target.lock.withPermits(1)(Effect.succeed(target.connection));
-      }
-      const clock = fiber.getRef(Clock.Clock);
-      const start = clock.monotonicTimeNanosUnsafe();
-      return target.lock.withPermits(1)(
-        Effect.sync(() => {
-          annotateAcquired(fiber, acquired(target, clock, start));
-          return target.connection;
-        }),
-      );
-    }),
-  );
+  const borrower: Borrower = (use) =>
+    Effect.flatMap(route, (target) =>
+      Effect.withFiber((fiber) => {
+        const effect = Effect.suspend(() => use(target.connection));
+        // The statement's span is current here only when it propagates, which
+        // Statement skips while tracing is off. Otherwise the current span is
+        // the caller's, so leave it alone.
+        if (
+          !fiber.getRef(References.TracerEnabled) ||
+          !fiber.getRef(Statement.SpanPropagationEnabled)
+        ) {
+          return target.lock.withPermits(1)(effect);
+        }
+        const clock = fiber.getRef(Clock.Clock);
+        const start = clock.monotonicTimeNanosUnsafe();
+        return target.lock.withPermits(1)(
+          Effect.andThen(
+            Effect.sync(() => annotateAcquired(fiber, acquired(target, clock, start))),
+            effect,
+          ),
+        );
+      }),
+    );
   const transactionAcquirer = Effect.flatMap(route, (target) =>
     Effect.uninterruptibleMask((restore) => {
       const fiber = Fiber.getCurrent()!;
       const scope = Context.getUnsafe(fiber.context, Scope.Scope);
       const clock = fiber.getRef(Clock.Clock);
       const start = clock.monotonicTimeNanosUnsafe();
+      const pending = fiber.getRef(TransactionAcquire);
+      const acquire = Effect.tap((pending?.restore ?? restore)(target.lock.take(1)), () => {
+        if (pending !== undefined) pending.acquired = acquired(target, clock, start);
+        return Scope.addFinalizer(scope, target.lock.release(1));
+      });
       return Effect.as(
-        Effect.tap(restore(target.lock.take(1)), () => {
-          const pending = fiber.getRef(TransactionAcquire);
-          if (pending !== undefined) pending.acquired = acquired(target, clock, start);
-          return Scope.addFinalizer(scope, target.lock.release(1));
-        }),
+        // A scheduler yield after taking the permit must not precede its release finalizer.
+        Effect.provideService(acquire, Scheduler.PreventSchedulerYield, true),
         target.connection,
       );
     }),
   );
 
   const client = yield* Client.make({
-    acquirer,
+    acquirer: transactionAcquirer,
+    borrower,
     compiler,
     transactionAcquirer,
     // A deferred BEGIN only takes the write lock at the first write. If another
@@ -897,15 +902,21 @@ const make = Effect.fn("makeWithDatabase")(function* (
     // Each run gets its own holder, so a reused transaction Effect never
     // carries an earlier run's attributes.
     withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      Effect.suspend(() => {
-        const pending: { acquired?: Acquired } = {};
+      Effect.uninterruptibleMask((restore) => {
+        // SqlClient masks setup; acquisition must preserve the caller's interruptibility.
+        const pending: { acquired?: Acquired; restore: typeof Effect.interruptible | undefined } = {
+          restore,
+        };
         // The body runs with the `sql.transaction` span current. A nested
         // transaction acquires nothing, so its span gets no attributes.
         const body = Effect.withFiber<A, E, R>((fiber) => {
           annotateAcquired(fiber, pending.acquired);
+          pending.restore = undefined;
           return effect;
         });
-        return withTransaction(body).pipe(Effect.provideService(TransactionAcquire, pending));
+        return restore(
+          withTransaction(body).pipe(Effect.provideService(TransactionAcquire, pending)),
+        );
       }),
   });
 });
