@@ -9,7 +9,10 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
 
 import { mergeEnvironmentSettings } from "../../hooks/useSettings";
-import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import {
+  getCustomModelOptionsByInstance,
+  resolveEffectiveDefaultModelSelection,
+} from "../../modelSelection";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
@@ -62,7 +65,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     ? environments.find((environment) => environment.environmentId === target.environmentId)
     : undefined;
   const providers = representative?.serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
-  const selection = resolveDefaultProviderModelSelection(providers, settings.defaultModelSelection);
+  const storedSelection = resolveDefaultProviderModelSelection(
+    providers,
+    settings.defaultModelSelection,
+  );
+  const selection = storedSelection
+    ? resolveEffectiveDefaultModelSelection(settings, providers, storedSelection)
+    : null;
   const entries = sortProviderInstanceEntries(
     applyProviderInstanceSettings(
       deriveProviderInstanceEntries(providers),
