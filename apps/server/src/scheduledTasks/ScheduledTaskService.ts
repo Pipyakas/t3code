@@ -1474,8 +1474,9 @@ export const layer = Layer.effect(
         // than the relay holds a request, because the delivery log is trimmed.
         // A rate-limited delivery stays held on the relay, so it must give up
         // its claim or the next pass would treat it as already delivered.
+        let claimAcquired = false;
         const releaseClaim = <A>(result: A) =>
-          request.relayDeliveryId === undefined
+          !claimAcquired || request.relayDeliveryId === undefined
             ? Effect.succeed(result)
             : sql`
                 DELETE FROM scheduled_task_webhook_relay_deliveries
@@ -1504,6 +1505,7 @@ export const layer = Layer.effect(
                 yield* observe("duplicate");
                 return { _tag: "accepted" as const, deliveryId, outcome: "duplicate" as const };
               }
+              claimAcquired = true;
               // Older claims can no longer be replayed by the relay.
               yield* sql`
                 DELETE FROM scheduled_task_webhook_relay_deliveries
@@ -1665,8 +1667,10 @@ export const layer = Layer.effect(
               Effect.ensuring(release),
               Effect.forkIn(serviceScope),
             );
+            // Dispatch owns the accepted delivery now; retries must keep its claim.
+            claimAcquired = false;
             return { _tag: "accepted" as const, deliveryId, outcome: "accepted" as const };
-          }),
+          }).pipe(Effect.onError(() => releaseClaim(undefined))),
         );
       });
 
