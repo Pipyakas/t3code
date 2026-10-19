@@ -11,14 +11,6 @@ export function resolveUserMessageIntentBadge(
   intent: OrchestrationV2UserMessageInputIntent | undefined,
 ): UserMessageIntentBadgePresentation | null {
   switch (intent) {
-    case "queued_turn":
-      return {
-        label: "from queue",
-        accessibilityLabel: "Queued while the agent was busy",
-        explanation:
-          "This badge records that the message was queued. It stays visible after the message leaves the queue.",
-        tone: "queued",
-      };
     case "steer":
       return {
         label: "steer",
@@ -35,6 +27,7 @@ export function resolveUserMessageIntentBadge(
           "This message was originally queued, then promoted to steer the agent while its turn was still running.",
         tone: "steer",
       };
+    case "queued_turn":
     case "turn_start":
     case undefined:
       return null;
