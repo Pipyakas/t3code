@@ -37,6 +37,7 @@ describe("ComposerStashMenu", () => {
           },
         ]}
         stashShortcutLabel="Ctrl+S"
+        composerFormRef={{ current: null }}
         onRestore={() => {}}
         onDelete={() => {}}
         onClose={() => {}}
@@ -79,6 +80,7 @@ describe("ComposerStashMenu", () => {
           },
         ]}
         stashShortcutLabel={null}
+        composerFormRef={{ current: null }}
         onRestore={() => {}}
         onDelete={() => {}}
         onClose={() => {}}
