@@ -176,6 +176,10 @@ function isRunOwnedSubagentTerminalStatus(
   return status === "interrupted" || status === "failed" || status === "cancelled";
 }
 
+function childTurnsContinue(terminal: ProviderTerminalEvent): boolean {
+  return terminal.status === "failed" && terminal.childTurnsContinue === true;
+}
+
 /**
  * Whether a new run takes over a subagent's child thread, so a later message
  * can resume it there. A running subagent stays with the run that launched it,
@@ -669,7 +673,9 @@ export const layer: Layer.Layer<
           open.childTurnItems.size > 0 ||
           open.nodes.size > 0;
         const cascadedSubagentEvents =
-          isRunOwnedSubagentTerminalStatus(input.terminal.status) && hasOpenSubagentProjection
+          isRunOwnedSubagentTerminalStatus(input.terminal.status) &&
+          !childTurnsContinue(input.terminal) &&
+          hasOpenSubagentProjection
             ? yield* cascadeTerminalizeRunOwnedSubagents({
                 run: input.run,
                 open,
@@ -1039,7 +1045,10 @@ export const layer: Layer.Layer<
                   (cause) => new RunExecutionIngestError({ runId: input.run.id, cause }),
                 ),
               );
-              if (isRunOwnedSubagentTerminalStatus(terminal.status)) {
+              if (
+                isRunOwnedSubagentTerminalStatus(terminal.status) &&
+                !childTurnsContinue(terminal)
+              ) {
                 yield* Ref.set(openRunOwnedSubagents, emptyOpenRunOwnedSubagentProjection());
               }
               yield* Ref.set(rootRunFinalized, true);
@@ -1191,8 +1200,13 @@ export const layer: Layer.Layer<
               return false;
             }
             const terminal = yield* Ref.get(terminalEvent);
-            // Non-completed terminals drop background tracking immediately.
-            if (terminal !== null && terminal.status !== "completed") {
+            // Non-completed terminals drop background tracking immediately,
+            // unless a failed turn still has child turns to continue.
+            if (
+              terminal !== null &&
+              terminal.status !== "completed" &&
+              !childTurnsContinue(terminal)
+            ) {
               return true;
             }
             const childProviderTurns = yield* Ref.get(activeChildProviderTurns);
