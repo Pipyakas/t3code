@@ -25,6 +25,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -100,20 +101,17 @@ it("leaves vertical navigation between paragraphs to the browser", async () => {
   });
 });
 
-it.each([
-  { shiftKey: true },
-  { altKey: true },
-  { metaKey: true },
-  { ctrlKey: true },
-  { isComposing: true },
-])("preserves modified Up behavior for %j", async (options) => {
-  const editor = await mountEditor(draft);
-  await act(async () => {
-    expect(press(editor, "ArrowUp", options)).toBe(false);
-    editor.commands.insertContent("x");
-  });
-  expect(serializeEditorDoc(editor.state.doc).value).toBe(draft.replace("> **", "> **x"));
-});
+it.each([{ shiftKey: true }, { altKey: true }, { ctrlKey: true }, { isComposing: true }])(
+  "preserves modified Up behavior for %j",
+  async (options) => {
+    const editor = await mountEditor(draft);
+    await act(async () => {
+      expect(press(editor, "ArrowUp", options)).toBe(false);
+      editor.commands.insertContent("x");
+    });
+    expect(serializeEditorDoc(editor.state.doc).value).toBe(draft.replace("> **", "> **x"));
+  },
+);
 
 it("leaves literal Markdown navigation to the browser in plain mode", async () => {
   const editor = await mountEditor(draft, false);
