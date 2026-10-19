@@ -3208,8 +3208,10 @@ interface ClaudeLiveQueryContext {
   promptEchoMode: "unknown" | "acknowledged" | "early" | "result_only";
   // The mode this process was opened in, and the mode the CLI last reported
   // (init and status frames). Claude changes the latter itself through
-  // EnterPlanMode.
-  readonly openedPermissionMode: PermissionMode;
+  // EnterPlanMode. The CLI may fall back from the requested mode on its first
+  // init frame, which `receivedInit` records.
+  openedPermissionMode: PermissionMode;
+  receivedInit: boolean;
   permissionMode: PermissionMode;
   // Stop, rollback or fork is closing this process; its work is ending.
   stopping: boolean;
@@ -8659,7 +8661,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             existing.queryPolicyKey === queryPolicyKey &&
             !existing.stopping &&
             existing.selection.queryIdentity !== compiledSelection.queryIdentity &&
-            canApplyClaudeSelectionLive(existing.selection, compiledSelection)
+            canApplyClaudeSelectionLive(existing.selection, compiledSelection) &&
+            (existing.selection.apiModelId === compiledSelection.apiModelId ||
+              existing.openedPermissionMode === queryPolicy.permissionMode)
           ) {
             const live = existing;
             yield* live.query.setModel(compiledSelection.apiModelId).pipe(
@@ -8684,7 +8688,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           ) {
             // Claude can switch its own mode mid-session (EnterPlanMode), and
             // a denied ExitPlanMode leaves it there. Put the live process back
-            // in the thread's mode before the next prompt.
+            // in its initial mode before the next prompt.
             if (existing.permissionMode !== existing.openedPermissionMode) {
               yield* existing.query.setPermissionMode(existing.openedPermissionMode);
               existing.permissionMode = existing.openedPermissionMode;
@@ -8812,6 +8816,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             lastTurn: null,
             promptEchoMode: "unknown",
             openedPermissionMode: queryOptions.permissionMode,
+            receivedInit: false,
             permissionMode: queryOptions.permissionMode,
             stopping: false,
             subagentsFromEarlierProcesses: new Set(
@@ -8825,6 +8830,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             Stream.runForEach((message) =>
               sdkMessageLock.withPermits(1)(
                 Effect.suspend(() => {
+                  if (
+                    message.type === "system" &&
+                    message.subtype === "init" &&
+                    !context.receivedInit
+                  ) {
+                    context.openedPermissionMode =
+                      message.permissionMode ?? context.openedPermissionMode;
+                    context.receivedInit = true;
+                  }
                   if (
                     message.type === "system" &&
                     (message.subtype === "init" || message.subtype === "status") &&
