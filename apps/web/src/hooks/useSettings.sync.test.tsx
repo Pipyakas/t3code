@@ -31,6 +31,12 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("~/connection/runtime", () => ({ connectionAtomRuntime: undefined }));
+vi.mock("~/connection/catalog", () => ({
+  environmentCatalog: {
+    // The migration hook only needs a stable connection generation.
+    stateAtom: (() => Atom.make(AsyncResult.success({ phase: "connected", generation: 1 }))) as never,
+  },
+}));
 vi.mock("@t3tools/client-runtime/state/session", () => ({
   createEnvironmentSessionAtoms: () => ({
     sessionStateAtom: (id: EnvironmentId) => state.sessions.get(id)!,
