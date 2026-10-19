@@ -529,16 +529,39 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
     });
   }
 
-  if (commandPaths.some(isMiseCommandPath) || (yield* isMiseWrapperScript(context))) {
+  const homebrew = homebrewOwnershipFromCommandPath(context.realCommandPath);
+  if (
+    commandPaths.some(isMiseCommandPath) ||
+    // Mise shims resolve to the version manager's keg, not the provider's.
+    (homebrew?.kind === "formula" && homebrew.name.toLowerCase() === "mise") ||
+    (yield* isMiseWrapperScript(context))
+  ) {
     return manual;
   }
-
-  const homebrew = homebrewOwnershipFromCommandPath(context.realCommandPath);
   if (homebrew) {
-    // Mise shims resolve to the version manager, not the provider.
-    if (homebrew.kind === "formula" && homebrew.name.toLowerCase() === "mise") {
-      return manual;
-    }
+    return (
+      (yield* resolveHomebrewProviderMaintenance(
+        { provider: definition.provider, packageName },
+        homebrew,
+        context,
+      )) ?? fallback
+    );
+  }
+
+  return fallback;
+});
+
+/**
+ * `brew upgrade` capabilities once the keg's prefix is confirmed by a `brew`
+ * that reports it as its own, with `latestVersion` from `brew info`. Null when
+ * no `brew` is found or it owns another prefix.
+ */
+export const resolveHomebrewProviderMaintenance = Effect.fn("resolveHomebrewProviderMaintenance")(
+  function* (
+    input: { readonly provider: ProviderDriverKind; readonly packageName: string | null },
+    homebrew: HomebrewOwnership,
+    context: ProviderMaintenanceResolutionContext,
+  ) {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     // The keg's own brew works even when a GUI-launched server has no
@@ -548,7 +571,7 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
       ? kegBrewPath
       : yield* resolveCommandPath("brew", { env: context.env });
     if (!brewPath) {
-      return fallback;
+      return null;
     }
     // A keg-shaped path is only Homebrew's if it sits under the prefix of the
     // `brew` that would upgrade it; `brew --prefix` is a cheap shell script.
@@ -560,7 +583,7 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
       !realBrewPrefix ||
       normalizeCommandPath(realBrewPrefix) !== normalizeCommandPath(homebrew.prefix)
     ) {
-      return fallback;
+      return null;
     }
     const args =
       homebrew.kind === "cask" ? ["upgrade", "--cask", homebrew.name] : ["upgrade", homebrew.name];
@@ -568,18 +591,16 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
     // `brew upgrade` can actually deliver.
     const info = yield* runProbe(brewPath, ["info", "--json=v2", homebrew.name], context.env);
     return makeProviderMaintenanceCapabilities({
-      provider: definition.provider,
-      packageName,
+      provider: input.provider,
+      packageName: input.packageName,
       updateExecutable: brewPath,
       updateArgs: args,
       updateLockKey: "homebrew",
       updateCommand: ["brew", ...args].join(" "),
       latestVersion: info ? parseHomebrewLatestVersion(info, homebrew) : null,
     });
-  }
-
-  return fallback;
-});
+  },
+);
 
 /** A launcher script that runs the provider through mise (`exec mise x codex -- codex`). */
 const isMiseWrapperScript = Effect.fn("isMiseWrapperScript")(function* (
