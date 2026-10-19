@@ -1330,11 +1330,20 @@ const make = Effect.gen(function* () {
       );
   };
 
-  /** Closes agent tabs that no one watches and the agent stopped using. */
+  /**
+   * Closes agent tabs that no one watches and the agent stopped using.
+   * Desktop browsing bypasses streamed viewers and server input tracking,
+   * so these idle signals only apply to headless tabs.
+   */
   const closeIdleAgentTabs = () => {
     const cutoff = Date.now() - AGENT_TAB_IDLE_MS;
     for (const tab of tabs.values()) {
-      if (tab.control.agentId !== null && tab.viewers.size === 0 && tab.usedAt < cutoff)
+      if (
+        tab.control.agentId !== null &&
+        tab.desktop === null &&
+        tab.viewers.size === 0 &&
+        tab.usedAt < cutoff
+      )
         dropTab(tab, true);
     }
   };
