@@ -630,13 +630,13 @@ export const make = Effect.gen(function* () {
       withRepository(input.repository, (path) => {
         const search = input.query?.trim() ?? "";
         // Both narrowings share the one `q` Bitbucket takes, so they are ANDed rather than one
-        // replacing the other. The boundary instant is read inclusively — the rows already sent
-        // at it come back and the caller drops them, which is what keeps their neighbours at the
-        // same instant from being skipped. A date is a bare literal in this grammar, and this one
+        // replacing the other. Exclude already-sent IDs at the inclusive timestamp before
+        // applying the page limit. A date is a bare literal in this grammar, and this one
         // was checked against a timestamp's shape before it got here.
         const predicates = [
           ...(search.length === 0 ? [] : [searchFilter(search)]),
           ...(input.cursor === undefined ? [] : [`updated_on <= ${input.cursor.updatedBefore}`]),
+          ...(input.cursor?.seenAt ?? []).map((number) => `id != ${number}`),
         ];
         return listPage({
           // Reviewers are not on a listing by default, and `viewerReviewRequested` needs them.

@@ -500,11 +500,11 @@ function listCursorAt(
   fetched: ReadonlyArray<ProviderChangeRequest>,
   deliveredCount: number,
 ): string {
-  const seenAt = [
+  const seenAt = new Set([
     ...(previous?.updatedBefore === boundary ? previous.seenAt : []),
     ...fetched.filter((item) => item.updatedAt === boundary).map((item) => item.number),
-  ];
-  return `${boundary}|${(previous?.delivered ?? 0) + deliveredCount}|${seenAt.join(",")}`;
+  ]);
+  return `${boundary}|${(previous?.delivered ?? 0) + deliveredCount}|${[...seenAt].join(",")}`;
 }
 
 /** A host that cannot be read at all, as opposed to one request that failed. */
@@ -1388,7 +1388,11 @@ export const make = Effect.gen(function* () {
               ...(cursor === undefined
                 ? {}
                 : {
-                    cursor: { updatedBefore: cursor.updatedBefore, delivered: cursor.delivered },
+                    cursor: {
+                      updatedBefore: cursor.updatedBefore,
+                      delivered: cursor.delivered,
+                      seenAt: cursor.seenAt,
+                    },
                   }),
             })
             .pipe(
