@@ -2136,10 +2136,11 @@ export function ConnectionsSettings() {
   // the Environments list but does take threads, so it stays in here. This
   // machine leads the list.
   const loadBalancingEnvironments = useMemo(
-    () => [
-      ...(primaryEnvironment ? [primaryEnvironment] : []),
-      ...savedEnvironments.filter((environment) => environment.entry.enabled),
-    ],
+    () =>
+      [
+        ...(primaryEnvironment ? [primaryEnvironment] : []),
+        ...savedEnvironments.filter((environment) => environment.entry.enabled),
+      ].filter((environment) => environment.connection.phase !== "unsupported"),
     [primaryEnvironment, savedEnvironments],
   );
   const savedDesktopSshEnvironmentKeys = useMemo(() => {
