@@ -191,6 +191,7 @@ function PullRequestCodeTab({
   onAddToAgentSelection,
   onRefresh,
   refreshToken = 0,
+  backgroundRefreshToken = 0,
   revealRequest = null,
 }: {
   scrollerRef: (node: HTMLDivElement | null) => void;
@@ -209,6 +210,7 @@ function PullRequestCodeTab({
   onRefresh: () => void;
   /** Bumped by the panel's refresh button: drop the accumulated pages and re-read the diff. */
   refreshToken?: number;
+  backgroundRefreshToken?: number;
   /** A file another tab asked to show. A new nonce asks again for the same path. */
   revealRequest?: { readonly path: string; readonly nonce: number } | null;
 }) {
@@ -254,7 +256,7 @@ function PullRequestCodeTab({
   const commit = selectedCommitOid;
   // One commit's own changes and the whole change are two different diffs, paged separately, so
   // everything below is keyed by both.
-  const scopeKey = commit === null ? referenceKey : `${referenceKey}@${commit}`;
+  const scopeKey = JSON.stringify([environmentId, referenceKey, commit]);
   // The panel keeps this mounted across pull requests, so an open composer would otherwise
   // survive the switch and attach its comment to whichever one is on screen when it is sent.
   useEffect(() => {
@@ -431,6 +433,15 @@ function PullRequestCodeTab({
     refreshFirstDiffPage();
     refreshFilesViewed();
   }, [refreshToken, scopeKey, refreshFirstDiffPage, refreshFilesViewed]);
+  const appliedBackgroundRefreshToken = useRef(backgroundRefreshToken);
+  useEffect(() => {
+    if (appliedBackgroundRefreshToken.current === backgroundRefreshToken) return;
+    appliedBackgroundRefreshToken.current = backgroundRefreshToken;
+    // Keeping slices mounted preserves scroll; the page merge invalidates changed pages.
+    setSliceState((previous) => ({ ...previous, cursor: null }));
+    refreshFirstDiffPage();
+    refreshFilesViewed();
+  }, [backgroundRefreshToken, refreshFirstDiffPage, refreshFilesViewed]);
   const nextCursor = loadedSlices.at(-1)?.nextCursor ?? null;
   // What a slice withheld: the host declining to inline part of it, or a patch the viewer could
   // not structure and so dropped. Neither says anything about there being more to fetch.
