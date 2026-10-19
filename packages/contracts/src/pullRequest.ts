@@ -3,6 +3,7 @@ import * as HttpServerRespondable from "effect/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 
 import {
+  ForwardCompatibleArray,
   IsoDateTime,
   NonNegativeInt,
   PositiveInt,
@@ -360,7 +361,7 @@ export const PullRequestReviewCapabilities = Schema.Struct({
   /** A thread can be marked resolved, and unresolved again. */
   resolve: Schema.Boolean,
   /** The verdicts a submitted review can carry. Empty means reviews cannot be submitted. */
-  verdicts: Schema.Array(PullRequestReviewVerdict),
+  verdicts: ForwardCompatibleArray(PullRequestReviewVerdict),
 });
 export type PullRequestReviewCapabilities = typeof PullRequestReviewCapabilities.Type;
 
@@ -416,15 +417,15 @@ export const PullRequestCapabilities = Schema.Struct({
   /** A comment can be posted, and the conversation read back. */
   comment: Schema.Boolean,
   /** The actions this host can carry out; anything absent is never offered. */
-  actions: Schema.Array(PullRequestAction),
+  actions: ForwardCompatibleArray(PullRequestAction),
   /** Merge strategies the provider itself offers, before repository settings narrow them. */
-  mergeMethods: Schema.Array(PullRequestMergeMethod),
+  mergeMethods: ForwardCompatibleArray(PullRequestMergeMethod),
   deleteBranch: Schema.optional(Schema.Boolean),
   /**
    * How this host can bring a stale branch up to date. Absent where it cannot at all, which is
    * every host that has not said otherwise — so a provider that says nothing offers nothing.
    */
-  updateMethods: Schema.optional(Schema.Array(PullRequestUpdateMethod)),
+  updateMethods: Schema.optional(ForwardCompatibleArray(PullRequestUpdateMethod)),
   /**
    * The host can narrow a listing by free text. False means it answers unnarrowed and whoever
    * asked has to do the narrowing — which is a different promise, so the page is told rather
@@ -481,20 +482,20 @@ export const PullRequestViewerPermissions = Schema.Struct({
   /** May request remote stack rebases, including when this layer is already current. */
   stackRebase: Schema.optional(Schema.Boolean),
   /** Which of the actions this viewer may take; anything absent is theirs to look at only. */
-  actions: Schema.Array(PullRequestAction),
+  actions: ForwardCompatibleArray(PullRequestAction),
   /** This viewer may write a remark: a comment, a reply, or a note against a line. */
   comment: Schema.Boolean,
   /** This viewer may mark a review conversation resolved, and unresolved again. */
   resolve: Schema.Boolean,
   /** The verdicts this viewer may submit a review with. Empty means they may not review. */
-  verdicts: Schema.Array(PullRequestReviewVerdict),
+  verdicts: ForwardCompatibleArray(PullRequestReviewVerdict),
   /** This viewer may ask somebody for a review, and take the request back again. */
   requestReviewers: Schema.Boolean,
   /**
    * The ways this viewer may bring the branch up to date, narrowed from what the host offers.
    * Absent or empty means they may not, which is also what a host with no such action says.
    */
-  updateMethods: Schema.optional(Schema.Array(PullRequestUpdateMethod)),
+  updateMethods: Schema.optional(ForwardCompatibleArray(PullRequestUpdateMethod)),
   /**
    * This viewer may put a label on the change request, and take one off. Absent is granted, like
    * every permission here; the capability beside it is what decides whether a label can be
@@ -640,7 +641,7 @@ export const PullRequestProviderSummary = Schema.Struct({
    * The actions this host can carry out, so a row can offer them before its detail is read.
    * Absent from servers older than this field; clients then offer what they always did.
    */
-  actions: Schema.optional(Schema.Array(PullRequestAction)),
+  actions: Schema.optional(ForwardCompatibleArray(PullRequestAction)),
   projectCount: PositiveInt,
   /** False when the provider's CLI or credentials are missing, with `detail` saying which. */
   configured: Schema.Boolean,
