@@ -19,11 +19,7 @@ import type { ReviewInlineComment } from "./reviewCommentSelection";
 
 const NATIVE_REVIEW_MAX_WORD_DIFF_RANGE_COUNT = 4;
 const NATIVE_REVIEW_MAX_WORD_DIFF_COVERAGE = 0.45;
-/**
- * Every row is serialized for setRowsJson and decoded on the native heap, so one
- * huge file (a 200k-line rebase diff) can exhaust Android's Java heap. Files past
- * this bound show an excerpt; the header still carries the full counts.
- */
+// Bound the rows serialized to the native heap before mapping and word matching.
 const NATIVE_REVIEW_MAX_FILE_ROWS = 2_000;
 const TRUNCATED_FILE_NOTICE = "This diff is too large to show in full; counts include all changes.";
 const NATIVE_HEX_COLOR = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})([\da-f]{2})?$/i;
@@ -138,6 +134,7 @@ interface PreparedNativeReviewFileRows {
   readonly fileId: string;
   readonly filePath: string;
   readonly lineCount: number;
+  readonly truncated: boolean;
   readonly rows: ReadonlyArray<NativeReviewDiffRow>;
   readonly commentTargetsByRowId: ReadonlyMap<string, NativeReviewDiffCommentTarget>;
   readonly rowIdByCommentLineId: ReadonlyMap<string, string>;
@@ -478,6 +475,7 @@ function prepareFileRows(file: ReviewRenderableFile): PreparedNativeReviewFileRo
     fileId: file.id,
     filePath: file.path,
     lineCount: lineRows.length,
+    truncated: sourceRows !== file.rows,
     // Comments must not split the source deletion/addition runs used for word matching.
     rows: addNativeWordDiffRanges(rows),
     commentTargetsByRowId,
@@ -503,6 +501,7 @@ function insertFileComments(
 
   const commentsByEndIndex = new Map<number, ReviewInlineComment[]>();
   for (const comment of comments) {
+    if (file.truncated && comment.startIndex >= file.lineCount) continue;
     const endIndex = Math.min(comment.endIndex, file.lineCount - 1);
     if (endIndex < 0) continue;
     const existing = commentsByEndIndex.get(endIndex);
