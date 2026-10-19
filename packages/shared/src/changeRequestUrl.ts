@@ -51,35 +51,34 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   // GitCafe, only on its own two hosts: /{owner}/{repo}/pulls/{n}
   if (host === "git.cafe" || host === "staging.git.cafe") {
     const match = /^\/([^/]+\/[^/]+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    return claim(host, match);
-  }
-  // GitHub, and any Enterprise install: /{owner}/{repo}/pull/{n}
-  if (isHostOf(host, "github.com", "github")) {
-    const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u.exec(url.pathname);
     if (match) return claim(host, match);
+  } else {
+    // GitHub, and any Enterprise install: /{owner}/{repo}/pull/{n}
+    if (isHostOf(host, "github.com", "github")) {
+      const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u.exec(url.pathname);
+      if (match) return claim(host, match);
+    }
+    // Forgejo and Gitea use /pulls/ on arbitrary self-hosted domains.
+    const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
+    if (forgejo) {
+      const link = claim(host, forgejo);
+      return link === null ? null : { ...link, authority: url.host.toLowerCase() };
+    }
+    // GitLab, self-hosted included: /{group}/[{subgroup}/...]{repo}/-/merge_requests/{n}. The `/-/`
+    // separator is GitLab's own, so the hostname is not asked about.
+    const gitlab = /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
+    if (gitlab) return claim(host, gitlab);
+    // Bitbucket Cloud: /{workspace}/{repo}/pull-requests/{n}
+    if (isHostOf(host, "bitbucket.org", "bitbucket")) {
+      const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
+      if (match) return claim(host, match);
+    }
   }
-  // Forgejo and Gitea use /pulls/ on arbitrary self-hosted domains.
-  const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (forgejo) {
-    const link = claim(host, forgejo);
-    return link === null ? null : { ...link, authority: url.host.toLowerCase() };
-  }
-  // GitLab, self-hosted included: /{group}/[{subgroup}/...]{repo}/-/merge_requests/{n}. The `/-/`
-  // separator is GitLab's own, so the hostname is not asked about.
-  const gitlab = /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (gitlab) return claim(host, gitlab);
-  // Bitbucket Cloud: /{workspace}/{repo}/pull-requests/{n}
-  if (isHostOf(host, "bitbucket.org", "bitbucket")) {
-    const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    return claim(host, match);
-  }
-  // Azure DevOps, both the current host and the per-organisation one it replaced. `_git` is part
-  // of the repository path there, as it is in the remote URL the identity is read from.
-  if (isHostOf(host, "dev.azure.com") || host.endsWith(".visualstudio.com")) {
-    const match = /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    return claim(host, match);
-  }
-  return null;
+  // Azure DevOps Server can use any hostname; its `_git` pull request route identifies it. `_git`
+  // is part of the repository path there, as it is in the remote URL the identity is read from.
+  const azure = /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u.exec(url.pathname);
+  const link = claim(host, azure);
+  return link === null || url.port === "" ? link : { ...link, authority: url.host.toLowerCase() };
 }
 
 function claim(host: string, match: RegExpExecArray | null): ChangeRequestLink | null {
@@ -88,6 +87,22 @@ function claim(host: string, match: RegExpExecArray | null): ChangeRequestLink |
   return repository && Number.isSafeInteger(number) && number > 0
     ? { host, repository: repository.toLowerCase(), number }
     : null;
+}
+
+function remoteWebOrigin(host: string, remoteUrl: string | undefined): string {
+  try {
+    const remote = new URL(remoteUrl ?? "");
+    if (
+      (remote.protocol === "http:" || remote.protocol === "https:") &&
+      (remote.hostname.toLowerCase() === host.toLowerCase() ||
+        remote.host.toLowerCase() === host.toLowerCase())
+    ) {
+      return remote.origin;
+    }
+  } catch {
+    // SSH remotes do not specify the server's web origin.
+  }
+  return `https://${host}`;
 }
 
 /** The web URL a host writes for a change request; null when the host shape is unknown. */
@@ -103,27 +118,18 @@ export function changeRequestUrlFor(
       return `https://${host}/${repository}/pull/${number}`;
     case "gitcafe":
       return `https://${host}/${repository}/pulls/${number}`;
-    case "forgejo": {
-      try {
-        const remote = new URL(remoteUrl ?? "");
-        if (
-          (remote.protocol === "http:" || remote.protocol === "https:") &&
-          (remote.hostname.toLowerCase() === host.toLowerCase() ||
-            remote.host.toLowerCase() === host.toLowerCase())
-        ) {
-          return `${remote.origin}/${repository}/pulls/${number}`;
-        }
-      } catch {
-        // SSH remotes do not specify the server's web origin.
-      }
-      return `https://${host}/${repository}/pulls/${number}`;
-    }
+    case "forgejo":
+      return `${remoteWebOrigin(host, remoteUrl)}/${repository}/pulls/${number}`;
     case "gitlab":
       return `https://${host}/${repository}/-/merge_requests/${number}`;
     case "bitbucket":
       return `https://${host}/${repository}/pull-requests/${number}`;
-    case "azure-devops":
-      return `https://${canonicalRepositoryKey(`${host}/${repository}`.toLowerCase())}/pullrequest/${number}`;
+    case "azure-devops": {
+      const [canonicalHost = host, ...path] = canonicalRepositoryKey(
+        `${host}/${repository}`.toLowerCase(),
+      ).split("/");
+      return `${remoteWebOrigin(canonicalHost, remoteUrl)}/${path.join("/")}/pullrequest/${number}`;
+    }
     default:
       return null;
   }
