@@ -137,6 +137,7 @@ export function usePullRequestFilesViewed(options: {
         // told about and which the host never refused.
         if (owned.size > 0 && !isAtomCommandInterrupted(result)) {
           toastManager.add({ type: "error", title: "Could not update viewed files" });
+          refresh();
         }
         return;
       }
