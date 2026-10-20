@@ -5949,6 +5949,20 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         );
         yield* Queue.offer(
           harness.sdkMessages,
+          assistantTools("00000000-0000-4000-8000-000000000509", [
+            {
+              id: "tool-todo-3",
+              name: "TodoWrite",
+              input: { todos: [{ content: "Implement", status: "pending" }] },
+            },
+          ]),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          toolResults("00000000-0000-4000-8000-000000000510", ["tool-todo-3"]),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
           makeResultFrame({
             uuid: "00000000-0000-4000-8000-000000000506",
             result: "Plan captured.",
@@ -5968,7 +5982,15 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         );
         const todoItems = [...items.values()].filter((item) => item.type === "todo_list");
         const proposedItems = [...items.values()].filter((item) => item.type === "proposed_plan");
-        assert.lengthOf(todoItems, 2);
+        assert.lengthOf(todoItems, 3);
+        assert.equal(todoItems[1]?.status, "completed");
+        assert.deepEqual(todoItems[1]?.steps, [
+          { id: "todo-0", text: "Inspect", status: "completed" },
+        ]);
+        assert.deepEqual(todoItems[2]?.steps, [
+          { id: "todo-0", text: "Implement", status: "pending" },
+        ]);
+        assert.equal(todoItems[1]?.runId, todoItems[2]?.runId);
         assert.lengthOf(proposedItems, 1);
         assert.equal(
           proposedItems[0]?.type === "proposed_plan" && proposedItems[0].markdown,
@@ -5986,17 +6008,17 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               item.type === "dynamic_tool" && item.nativeItemRef?.nativeId === "tool-exit-plan-1",
           ),
         );
-        assert.deepEqual(
-          [...plans.values()]
-            .filter((plan) => plan.kind === "todo_list")
-            .map((plan) => plan.status),
-          ["superseded", "completed"],
-        );
         const proposedPlan = [...plans.values()].find((plan) => plan.kind === "proposed_plan");
         assert.equal(proposedPlan?.status, "active");
         // The second prompt reuses the live process, which is still in the
         // plan mode Claude entered, so it is put back in the thread's mode.
         assert.deepEqual(harness.permissionModeChanges, ["bypassPermissions"]);
+        assert.deepEqual(
+          [...plans.values()]
+            .filter((plan) => plan.kind === "todo_list")
+            .map((plan) => plan.status),
+          ["superseded", "superseded", "active"],
+        );
       }).pipe(
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
