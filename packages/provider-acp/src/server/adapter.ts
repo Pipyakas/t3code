@@ -351,6 +351,8 @@ export interface AcpAdapterV2Flavor {
    * (e.g. monitor task uuid) so later synthetic text events can update it.
    */
   readonly extractBackgroundTaskId?: (toolCall: AcpToolCallState) => string | undefined;
+  /** Distinguishes commands from monitors when lifecycle notifications omit their kind. */
+  readonly isBackgroundCommandTool?: (toolCall: AcpToolCallState) => boolean;
   /**
    * Optional parse of root-session synthetic text (monitor-event lines, monitor
    * ended reminders). Returns every task mutation in the chunk so coalesced
@@ -1171,7 +1173,7 @@ interface ActiveAcpTurn {
     | undefined;
   contextUsage: ThreadTokenUsageSnapshot | null;
   nativeMetadata: OrchestrationV2ProviderThreadNativeMetadata | null;
-  readonly tools: Map<string, AcpToolCallState>;
+  readonly tools: Map<string, AcpToolCallState & { readonly backgroundCommandTaskId?: string }>;
   /** Streamed tool updates skipped since the last persisted one; see `shouldPersistToolUpdate`. */
   readonly toolUpdatesSkipped: Map<string, number>;
   readonly toolStartedAt: Map<string, DateTime.Utc>;
@@ -1180,6 +1182,11 @@ interface ActiveAcpTurn {
   readonly pendingSubagentNotifications: Map<string, Array<EffectAcpSchema.SessionNotification>>;
   /** Background monitor/task id → toolCallId for synthetic root text updates. */
   readonly toolCallIdsByBackgroundTaskId: Map<string, string>;
+  /** Command ACKs register null; terminal results wait here for prompt settlement. */
+  readonly backgroundCommands: Map<
+    string,
+    { readonly status: "completed" | "failed"; readonly output?: string } | null
+  >;
   /**
    * Persistent monitors registered this turn. Excluded from deferred-finalize
    * holds so the root turn can settle while they keep streaming post-settle.
@@ -3164,9 +3171,38 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           yield* closeTextStream(context, "user");
           const previous = context.tools.get(incoming.toolCallId);
           const merged = mergeToolCallState(previous, incoming);
-          const toolCall = flavor.normalizeToolCall?.(merged) ?? merged;
-          context.tools.set(toolCall.toolCallId, toolCall);
-          const backgroundTaskId = flavor.extractBackgroundTaskId?.(toolCall);
+          const normalized = flavor.normalizeToolCall?.(merged) ?? merged;
+          const backgroundTaskId = flavor.extractBackgroundTaskId?.(normalized);
+          const backgroundCommandTaskId =
+            flavor.isBackgroundCommandTool?.(normalized) === true
+              ? backgroundTaskId
+              : previous?.backgroundCommandTaskId;
+          if (
+            backgroundCommandTaskId !== undefined &&
+            !context.backgroundCommands.has(backgroundCommandTaskId)
+          ) {
+            context.backgroundCommands.set(backgroundCommandTaskId, null);
+          }
+          const completion =
+            context.promptSettled && backgroundCommandTaskId !== undefined
+              ? (context.backgroundCommands.get(backgroundCommandTaskId) ?? undefined)
+              : undefined;
+          // Preserve hydrated output; only a replayed start ACK needs its output restored.
+          const toolCall =
+            completion === undefined
+              ? normalized
+              : {
+                  ...(backgroundTaskId === undefined || completion.output === undefined
+                    ? normalized
+                    : setToolOutputText(normalized, completion.output)),
+                  status: completion.status,
+                };
+          context.tools.set(
+            toolCall.toolCallId,
+            backgroundCommandTaskId === undefined
+              ? toolCall
+              : { ...toolCall, backgroundCommandTaskId },
+          );
           if (backgroundTaskId !== undefined) {
             context.toolCallIdsByBackgroundTaskId.set(backgroundTaskId, toolCall.toolCallId);
             if (flavor.isPersistentBackgroundTool?.(toolCall) === true) {
@@ -3921,8 +3957,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           }
         });
 
-        // A structured task end (Grok `task_completed`) is authoritative for the
-        // tool that registered the task: its own updates only ever say running.
+        // Structured task ends are authoritative, but emitting before prompt
+        // settlement marks the result handled and suppresses its continuation.
         // Finish the row while deferred finalize holds a settled root turn open
         // for it, so the turn can settle. While the prompt is still open the
         // agent reports the end itself (TaskOutput hydration), and an unreported
@@ -3938,7 +3974,13 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           const tool = toolCallId === undefined ? undefined : context.tools.get(toolCallId);
           if (tool === undefined) return;
           const status = toolStatus(tool.status);
-          if (status !== "pending" && status !== "running") return;
+          if (
+            status !== "pending" &&
+            status !== "running" &&
+            !context.backgroundCommands.has(mutation.taskId)
+          ) {
+            return;
+          }
           context.awaitingBackgroundHydration.delete(mutation.taskId);
           const finished = { ...tool, status: mutation.status };
           yield* emitTool(
@@ -6016,7 +6058,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     yield* finishSubagentFromNotice(notice);
                   }),
                 ).pipe(Effect.asVoid),
-              applyBackgroundTaskMutation: (mutation) =>
+              applyBackgroundTaskMutation: (incoming) =>
                 runRuntimeCallbackAtGeneration(
                   handlerGeneration,
                   Effect.gen(function* () {
@@ -6025,7 +6067,32 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     if (yield* Ref.get(stoppedRunQuarantine)) return;
                     // Root-session tasks only: a cancelled subagent's re-run in
                     // its child session must not gate root wake machinery.
-                    if ((yield* Ref.get(activeSessionId)) !== mutation.sessionId) return;
+                    if ((yield* Ref.get(activeSessionId)) !== incoming.sessionId) return;
+                    const context = yield* Ref.get(activeTurn);
+                    let mutation = incoming;
+                    if (
+                      incoming.status !== "running" &&
+                      context !== null &&
+                      !context.finalized &&
+                      (incoming.report?.kind === "command" ||
+                        context.backgroundCommands.has(incoming.taskId))
+                    ) {
+                      const previous = context.backgroundCommands.get(incoming.taskId);
+                      const toolCallId = context.toolCallIdsByBackgroundTaskId.get(incoming.taskId);
+                      const tool =
+                        toolCallId === undefined ? undefined : context.tools.get(toolCallId);
+                      const output =
+                        incoming.output ??
+                        previous?.output ??
+                        (tool === undefined ? undefined : toolOutputText(tool));
+                      // Missing exit codes decode as success; they cannot undo a known failure.
+                      const completion = {
+                        status: previous?.status === "failed" ? "failed" : incoming.status,
+                        ...(output === undefined ? {} : { output }),
+                      };
+                      context.backgroundCommands.set(incoming.taskId, completion);
+                      mutation = { ...incoming, ...completion };
+                    }
                     if (
                       mutation.status !== "running" &&
                       mutation.report !== undefined &&
@@ -7083,6 +7150,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               subagentsBySessionId: new Map(),
               pendingSubagentNotifications: new Map(),
               toolCallIdsByBackgroundTaskId: new Map(),
+              backgroundCommands: new Map(),
               persistentBackgroundTaskIds: new Set(),
               awaitingBackgroundHydration: new Set(),
               pendingInjectedReport: new Set(),
@@ -7253,13 +7321,19 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     // Grok monitors (and async subagents) keep working after the root
                     // prompt RPC returns. Defer finalize so their later updates and
                     // wake-turn traffic still project onto this run.
+                    if (flavor.deferFinalizeForBackgroundWork === true && !context.interrupted) {
+                      context.promptSettled = true;
+                      context.promptSettledStatus = status;
+                      for (const [taskId, completion] of context.backgroundCommands) {
+                        if (completion === null) continue;
+                        yield* finishRegisteredBackgroundTool({ taskId, ...completion });
+                      }
+                    }
                     if (
                       flavor.deferFinalizeForBackgroundWork === true &&
                       !context.interrupted &&
                       hasDeferredBackgroundWork(context)
                     ) {
-                      context.promptSettled = true;
-                      context.promptSettledStatus = status;
                       // The agent finished this prompt's reply. Background work
                       // holds the run open, not the text it already sent.
                       yield* closeTextStreams(context);
