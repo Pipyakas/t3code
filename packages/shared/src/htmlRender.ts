@@ -17,6 +17,9 @@ import { EVENT_CODE_SHORTCUT_KEYS } from "./keybindings.ts";
 export const HTML_RENDER_TOOL_NAME = "html_render";
 export const HTML_RENDER_MIN_HEIGHT = 80;
 export const HTML_RENDER_MAX_HEIGHT = 2000;
+// A client fits the frame to the live page up to this height. It only stops a
+// page that grows with its frame, since vh units are rejected at publish.
+export const HTML_RENDER_MAX_FIT_HEIGHT = 20_000;
 export const HTML_RENDER_MAX_TITLE_LENGTH = 200;
 
 /** What the `html_render` tool result carries so clients can show the page. */
@@ -131,15 +134,21 @@ export function htmlRenderFrameHeight(
   width: number,
   contentHeight?: number,
 ) {
+  if (contentHeight !== undefined) {
+    return Math.min(
+      HTML_RENDER_MAX_FIT_HEIGHT,
+      Math.max(HTML_RENDER_MIN_HEIGHT, Math.ceil(contentHeight)),
+    );
+  }
   const heights = reference.heights;
   if (heights === undefined || heights.length === 0) {
-    return clampHtmlRenderHeight(Math.min(reference.height, contentHeight ?? reference.height));
+    return clampHtmlRenderHeight(reference.height);
   }
   const cap =
     measuredHeight(heights, HTML_RENDER_COLUMN_WIDTH) > reference.height
       ? reference.height
       : HTML_RENDER_MAX_HEIGHT;
-  return clampHtmlRenderHeight(Math.min(cap, contentHeight ?? measuredHeight(heights, width)));
+  return clampHtmlRenderHeight(Math.min(cap, measuredHeight(heights, width)));
 }
 
 /**
@@ -346,7 +355,7 @@ export const HTML_RENDER_LAYOUT_GUIDE = [
   "Use a fluid width with no horizontal padding on the outermost element, and no outer card, border, or banner title: the page is part of your reply.",
   "If a box needs its own background (a mock of a specific screen, a panel that must stand apart), give it at least 16px of padding on every side and var(--radius) corners, so content never touches its edge.",
   "Give charts fixed pixel heights rather than heights that scale with width.",
-  "Let content set the page's height. Avoid viewport-based heights such as 100vh or height:100% on html or body; the frame grows to fit the page, so they can make it grow again and again.",
+  "Let content set the page's height. The frame grows to fit the page, so a height that follows the viewport makes it grow again and again: html_preview and html_render reject vh, svh, lvh, and dvh units, and height:100% on html or body has the same problem.",
 ].join(" ");
 
 // The bridge between a render and its client speaks the MCP Apps protocol

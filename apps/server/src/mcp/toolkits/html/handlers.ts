@@ -10,6 +10,7 @@ const INVALID_PAGE_ERRORS = new Set([
   "HtmlRenderImagesNotFoundError",
   "HtmlRenderImageTooLargeError",
   "HtmlRenderPageTooLargeError",
+  "HtmlRenderViewportHeightError",
 ]);
 
 // Every HTML render error message is built on the server and tells the agent what to do next.
