@@ -7698,20 +7698,26 @@ export default function ChatView(props: ChatViewProps) {
       item.type === "user_message" &&
       (item.text.trim().toLowerCase() !== "/compact" || item.attachments.length > 0),
   );
+  const pendingHandoffSelection = composerSelectedModelSelection ?? activeThread?.modelSelection;
+  const pendingHandoffSelectionUsable = providerInstanceEntries.some(
+    (entry) =>
+      entry.instanceId === pendingHandoffSelection?.instanceId &&
+      entry.enabled &&
+      entry.isAvailable,
+  );
   const pendingHandoff = useMemo(
     () =>
       resolvePendingHandoff(
         serverProjection,
-        composerSelectedModelSelection ?? activeThread?.modelSelection,
+        pendingHandoffSelectionUsable ? pendingHandoffSelection : null,
         providerStatuses,
       ),
     [
       serverProjection,
-      composerSelectedModelSelection,
-      activeThread?.modelSelection,
+      pendingHandoffSelection,
+      pendingHandoffSelectionUsable,
       providerStatuses,
-    ],
-  );
+    ],  );
   const compactThreadUnavailable =
     !canOperateThread ||
     !activeThread ||
