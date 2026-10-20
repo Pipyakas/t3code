@@ -45,6 +45,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
 } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 
@@ -143,6 +144,7 @@ export interface ComposerPromptEditorHandle {
 }
 
 export interface ComposerPromptEditorProps {
+  draftKey?: string;
   value: string;
   cursor: number;
   /**
@@ -809,12 +811,14 @@ const ComposerMarkersExtension = Extension.create({
 type TiptapEditor = NonNullable<ReturnType<typeof useEditor>>;
 
 export function ComposerPromptEditorTiptap(props: ComposerPromptEditorProps) {
+  const restoreFocusRef = useRef(false);
   // Extensions are creation-time, so changing text mode remounts the editor.
   // Every mode initializes from the controlled value, preserving the draft.
   return (
     <ComposerPromptEditorTiptapInner
-      key={props.literalText ? "literal" : props.richTextEnabled ? "rich" : "plain"}
+      key={`${props.draftKey ?? ""}:${props.literalText ? "literal" : props.richTextEnabled ? "rich" : "plain"}`}
       {...props}
+      restoreFocusRef={restoreFocusRef}
     />
   );
 }
@@ -839,7 +843,9 @@ const ComposerUndoGroupingExtension = Extension.create<
   },
 });
 
-function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
+function ComposerPromptEditorTiptapInner(
+  props: ComposerPromptEditorProps & { restoreFocusRef: RefObject<boolean> },
+) {
   const {
     value,
     cursor,
@@ -868,6 +874,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
     onCitationDraftSave,
     onPaste,
     editorRef,
+    restoreFocusRef,
   } = props;
   // The setting toggles styling, not the engine: both modes are Tiptap.
   // Plain mode disables the mark extensions, so markers stay literal text.
@@ -1705,6 +1712,19 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
     skillLabelFor,
     value,
   ]);
+
+  useLayoutEffect(() => {
+    if (!editor) return;
+    if (restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      editor.view.focus();
+      scrollTiptapCaretIntoView(editor);
+    }
+    return () => {
+      // Capture focus before the keyed editor's DOM is removed.
+      restoreFocusRef.current = editor.view.hasFocus();
+    };
+  }, [editor, restoreFocusRef]);
 
   const focusAt = useCallback(
     (nextCursor: number) => {
