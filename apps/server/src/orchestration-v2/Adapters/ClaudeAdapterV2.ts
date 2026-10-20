@@ -112,7 +112,10 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { resolveClaudeSdkExecutablePath } from "../../provider/Drivers/ClaudeExecutable.ts";
-import { planClaudeSkillDispatch } from "../../provider/Drivers/ClaudeSkillDispatch.ts";
+import {
+  planClaudeSkillDispatch,
+  type ClaudeSkillTarget,
+} from "../../provider/Drivers/ClaudeSkillDispatch.ts";
 import { discoverClaudeSkills } from "../../provider/Drivers/ClaudeSkills.ts";
 import {
   compileClaudeModelSelection,
@@ -1710,7 +1713,7 @@ function isSupportedClaudeImageMimeType(
 export function makeClaudeUserMessage(input: {
   readonly text: string;
   readonly priority?: SDKUserMessage["priority"];
-  readonly skillNames?: ReadonlySet<string>;
+  readonly skills?: ReadonlyMap<string, ClaudeSkillTarget>;
   // Claude echoes it as user_message_uuid on the turn that answers it.
   readonly uuid?: SDKUserMessage["uuid"];
 }): SDKUserMessage {
@@ -1720,9 +1723,7 @@ export function makeClaudeUserMessage(input: {
   // it natively and the model still reads the full request. See
   // ClaudeSkillDispatch.
   const dispatch =
-    input.skillNames === undefined
-      ? undefined
-      : planClaudeSkillDispatch(input.text, input.skillNames);
+    input.skills === undefined ? undefined : planClaudeSkillDispatch(input.text, input.skills);
   return {
     type: "user",
     message: {
@@ -1749,12 +1750,12 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   readonly uuid?: SDKUserMessage["uuid"];
   readonly attachmentsDir: string;
   readonly fileSystem: FileSystem.FileSystem;
-  readonly skillNames?: ReadonlySet<string>;
+  readonly skills?: ReadonlyMap<string, ClaudeSkillTarget>;
 }) {
   if (input.attachments.length === 0) {
     return makeClaudeUserMessage({
       text: input.text,
-      ...(input.skillNames === undefined ? {} : { skillNames: input.skillNames }),
+      ...(input.skills === undefined ? {} : { skills: input.skills }),
       ...(input.priority === undefined ? {} : { priority: input.priority }),
       ...(input.uuid === undefined ? {} : { uuid: input.uuid }),
     });
@@ -1771,9 +1772,9 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   });
 
   const dispatch =
-    input.skillNames === undefined
+    input.skills === undefined
       ? undefined
-      : planClaudeSkillDispatch(textWithAttachmentPaths, input.skillNames);
+      : planClaudeSkillDispatch(textWithAttachmentPaths, input.skills);
   const content: Array<ClaudeUserContentBlock> = [];
   if (dispatch?.leadingText !== undefined) {
     content.push({ type: "text", text: dispatch.leadingText });
@@ -3768,7 +3769,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   // the scan is a few directory reads. A skill switched off via skillOverrides,
   // or reserved for the agent with `user-invocable: false`, is left as prose:
   // the CLI would answer `/name` with a notice instead of running it.
-  const userInvocableSkillNames = (cwd: string | null) =>
+  const userInvocableSkills = (cwd: string | null) =>
     discoverClaudeSkills(
       adapterOptions.settings,
       cwd ?? undefined,
@@ -3776,10 +3777,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     ).pipe(
       Effect.map(
         (skills) =>
-          new Set(
+          new Map(
             skills
               .filter((skill) => skill.enabled && skill.userInvocable !== false)
-              .map((skill) => skill.name),
+              .map((skill) => [skill.name, skill]),
           ),
       ),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
@@ -9258,7 +9259,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     attachments: turnInput.message.attachments,
                     attachmentsDir,
                     fileSystem,
-                    skillNames: yield* userInvocableSkillNames(turnInput.runtimePolicy.cwd),
+                    skills: yield* userInvocableSkills(turnInput.runtimePolicy.cwd),
                     uuid: promptUuid,
                   });
             const querySession = yield* openQuery(turnInput, nativeThreadId);
@@ -9597,7 +9598,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               priority: "now",
               attachmentsDir,
               fileSystem,
-              skillNames: yield* userInvocableSkillNames(currentTurn.input.runtimePolicy.cwd),
+              skills: yield* userInvocableSkills(currentTurn.input.runtimePolicy.cwd),
             });
             yield* backgroundForegroundSubagents(existing);
             // The turn can end while the moves are answered. A steer offered
