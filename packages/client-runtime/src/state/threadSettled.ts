@@ -108,7 +108,6 @@ export function threadRaisedHandWhileSnoozed(shell: ThreadSnoozeShell): boolean 
   if (shell.hasPendingApprovals || shell.hasPendingUserInput) return true;
   if (shell.source?.pendingRuntimeRequest != null) return true;
   if (shell.pendingSubagentRequest != null) return true;
-  const latestRun = shell.latestRun ?? shell.latestTurn ?? null;
   // Only a FRESH failure raises the hand: a thread snoozed while already
   // failed stays snoozed — that snooze was the user saying "I saw it, not
   // now". session.updatedAt stamps the status edge, so an error newer than
@@ -121,15 +120,23 @@ export function threadRaisedHandWhileSnoozed(shell: ThreadSnoozeShell): boolean 
   ) {
     return true;
   }
+  return completionWakeAt(shell) !== null;
+}
+
+/** A snooze acknowledges the run already requested, including its eventual result. */
+function completionWakeAt(shell: ThreadSnoozeShell): string | null {
+  const latestRun = shell.latestRun ?? shell.latestTurn ?? null;
   if (
     shell.snoozedAt != null &&
     (latestRun?.state === "completed" || latestRun?.status === "completed") &&
+    latestRun.requestedAt != null &&
+    Date.parse(latestRun.requestedAt) > Date.parse(shell.snoozedAt) &&
     latestRun.completedAt != null &&
     Date.parse(latestRun.completedAt) > Date.parse(shell.snoozedAt)
   ) {
-    return true;
+    return latestRun.completedAt;
   }
-  return false;
+  return null;
 }
 
 // V2 runtime.updatedAt includes metadata writes; prefer the failed run's completion.
@@ -217,15 +224,8 @@ export function threadWokeAt(
   // indicator the user already cleared by visiting (snoozedUntil is newer
   // than that visit's lastVisitedAt).
   if (threadRaisedHandWhileSnoozed(shell)) {
-    const latestRun = shell.latestRun ?? shell.latestTurn ?? null;
-    if (
-      shell.snoozedAt != null &&
-      (latestRun?.state === "completed" || latestRun?.status === "completed") &&
-      latestRun.completedAt != null &&
-      Date.parse(latestRun.completedAt) > Date.parse(shell.snoozedAt)
-    ) {
-      return latestRun.completedAt;
-    }
+    const completedAt = completionWakeAt(shell);
+    if (completedAt !== null) return completedAt;
     // An old failure must not replace the activity time of an approval or input wake.
     const failedAt = failureEdgeAt(shell);
     if (
