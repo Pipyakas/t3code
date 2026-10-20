@@ -682,7 +682,7 @@ describe("GitCafePullRequestProvider", () => {
       });
       assert.deepStrictEqual(
         detail.checks.map((check) => check.name),
-        ["early", "late"],
+        ["late", "early"],
       );
       // A requested reviewer shows before they have reviewed.
       assert.deepStrictEqual(
