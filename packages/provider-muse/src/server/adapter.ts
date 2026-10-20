@@ -334,6 +334,8 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       let hostEpoch = 0;
       let closed = false;
       let broken = false;
+      // Only idle host failures can be retried on this runtime.
+      let relaunchable = false;
       let nativeSessionId: string | undefined;
       let thread: OrchestrationV2ProviderThread | undefined;
       let active: ActiveTurn | undefined;
@@ -1071,7 +1073,13 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       });
       const failHost = Effect.fnUntraced(function* (cause: unknown) {
         if (closed || broken) return;
+        hostEpoch++;
+        // Registration can replace the host while failure events are consumed.
+        const failed = host;
+        const turn = active;
         broken = true;
+        relaunchable = !turn;
+        wake = undefined;
         const rootCause = Cause.isCause(cause) ? Cause.squash(cause) : cause;
         const failure = isOpenSessionError(rootCause) ? rootCause.cause : rootCause;
         const detail = isProtocolError(failure)
@@ -1079,15 +1087,14 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           : failure instanceof Error
             ? failure.message
             : "Muse transport failed.";
-        if (active) yield* finish(active, "failed", detail, "broken");
+        if (turn) yield* finish(turn, "failed", detail, "broken");
         else {
           yield* updateThread({ status: "error" });
           yield* updateSession("error", detail);
         }
         yield* settleObservedChildren("failed");
-        yield* Queue.fail(events, protocolError(detail, cause));
+        if (turn) yield* Queue.fail(events, protocolError(detail, cause));
         // Report the failure first; a hung host can take a while to close.
-        const failed = host;
         yield* Effect.tryPromise(() => failed.close()).pipe(Effect.ignore, Effect.forkIn(scope));
       });
       const owns = (turn: ActiveTurn, turnId: string) =>
@@ -1782,8 +1789,17 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       const register = Effect.fnUntraced(function* (
         args: ProviderAdapter.ProviderAdapterV2EnsureThreadInput,
       ) {
-        if (broken || closed)
+        if (closed || (broken && !relaunchable))
           return yield* protocolError("Muse host is unavailable; reopen the session");
+        if (broken) {
+          yield* Effect.logWarning("Relaunching the Muse host after a failure");
+          yield* launchHost();
+          broken = false;
+          relaunchable = false;
+          thread = undefined;
+          nativeSessionId = undefined;
+          yield* updateSession("ready", null);
+        }
         if (active)
           return yield* protocolError("Cannot change Muse sessions during an active turn");
         const existing = args.existingProviderThread;
