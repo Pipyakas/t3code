@@ -63,7 +63,7 @@ import {
 } from "react";
 
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
-import { useRightPanelStore } from "~/rightPanelStore";
+import { type PullRequestDetailTab, useRightPanelStore } from "~/rightPanelStore";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
@@ -193,8 +193,6 @@ import { guideRunKey, useGuideRunStore } from "./guide/guideRunStore";
 import { useReviewGuideWriter } from "./guide/useReviewGuideWriter";
 import { useInlineActionConfirm } from "./useInlineActionConfirm";
 
-type DetailTab = "summary" | "guide" | "timeline" | "code";
-
 /** Said as the thing that did not happen, rather than as the operation that returned an error. */
 const ACTION_FAILURE_LABELS: Record<PullRequestAction, string> = {
   merge: "Could not merge this pull request",
@@ -245,7 +243,7 @@ const ACTION_FAILURE_HINTS: Record<PullRequestAction, string> = {
 const UPDATE_BRANCH_REBASE_FAILURE_HINT =
   "The host refused it. A rebase stops at the first commit that does not apply cleanly; updating with a merge commit may still work.";
 
-const TABS: ReadonlyArray<{ value: DetailTab; label: string }> = [
+const TABS: ReadonlyArray<{ value: PullRequestDetailTab; label: string }> = [
   { value: "summary", label: "Summary" },
   { value: "guide", label: "Guide" },
   { value: "timeline", label: "Timeline" },
@@ -427,6 +425,8 @@ export function PullRequestDetailPanel({
   onBack,
   onSelectPullRequest,
   onGuideShown,
+  initialTab = "summary",
+  onTabChange,
 }: {
   environmentId: EnvironmentId;
   shortcutsEnabled: boolean;
@@ -476,6 +476,8 @@ export function PullRequestDetailPanel({
   onBack?: (() => void) | undefined;
   /** Told when a written guide comes on screen. The page maximizes its panel for the guide. */
   onGuideShown?: (() => void) | undefined;
+  initialTab?: PullRequestDetailTab;
+  onTabChange?: ((tab: PullRequestDetailTab) => void) | undefined;
 }) {
   const environmentConfigs = useServerConfigs();
   const projects = useProjects();
@@ -509,7 +511,11 @@ export function PullRequestDetailPanel({
   const [threadPickerOpen, setThreadPickerOpen] = useState(false);
   // Counted up by the guide's last stop to open the composer on the review.
   const [openReviewRequest, setOpenReviewRequest] = useState(0);
-  const [tab, setTab] = useState<DetailTab>("summary");
+  const [tab, setTab] = useState<PullRequestDetailTab>(initialTab);
+  const selectTab = (next: PullRequestDetailTab) => {
+    setTab(next);
+    onTabChange?.(next);
+  };
   const [timelineOrder, setTimelineOrder] = useState<"newest" | "oldest">("newest");
   const [codeCommitScope, setCodeCommitScope] = useState<{
     readonly pullRequestKey: string;
@@ -522,7 +528,7 @@ export function PullRequestDetailPanel({
   };
   const openCommit = (oid: string) => {
     selectCodeCommit(oid);
-    setTab("code");
+    selectTab("code");
   };
   // The guide names files; following one shows it in the whole diff, not a single commit's.
   const [codeRevealRequest, setCodeRevealRequest] = useState<{
@@ -533,7 +539,7 @@ export function PullRequestDetailPanel({
     selectCodeCommit(null);
     setCodeRevealRequest((previous) => ({ path, nonce: (previous?.nonce ?? 0) + 1 }));
     void loadCodeTab();
-    setTab("code");
+    selectTab("code");
   };
   // A guide notice asks for its pull request's Guide tab once the page has opened it.
   const guideOpenRequested = useGuideRunStore(
@@ -541,8 +547,10 @@ export function PullRequestDetailPanel({
   );
   if (guideOpenRequested && tab !== "guide") setTab("guide");
   useEffect(() => {
-    if (guideOpenRequested) useGuideRunStore.getState().requestOpen(null);
-  }, [guideOpenRequested]);
+    if (!guideOpenRequested) return;
+    useGuideRunStore.getState().requestOpen(null);
+    onTabChange?.("guide");
+  }, [guideOpenRequested, onTabChange]);
   // Every tab the reader has opened stays mounted behind the active one. The diff viewer
   // always needed this (it virtualizes against its own scroll position); the trace showed the
   // summary needs it too — a large description re-parses its whole markdown on every return
@@ -551,11 +559,11 @@ export function PullRequestDetailPanel({
   const tabScopeKey = `${environmentId}:${pullRequestKey}`;
   const [tabMountState, setTabMountState] = useState(() => ({
     key: tabScopeKey,
-    tabs: new Set<DetailTab>(["summary"]),
+    tabs: new Set<PullRequestDetailTab>([tab]),
   }));
   // A previously visited Code tab must not fetch diffs for every later PR while hidden.
   const mountedTabs =
-    tabMountState.key === tabScopeKey ? tabMountState.tabs : new Set<DetailTab>([tab]);
+    tabMountState.key === tabScopeKey ? tabMountState.tabs : new Set<PullRequestDetailTab>([tab]);
   useEffect(() => {
     setTabMountState((previous) => {
       if (previous.key !== tabScopeKey) return { key: tabScopeKey, tabs: new Set([tab]) };
@@ -565,12 +573,12 @@ export function PullRequestDetailPanel({
   }, [tab, tabScopeKey]);
   const [chromeCondensed, setChromeCondensed] = useState(false);
   // Each mounted tab remembers its own scroll chrome; short tabs cannot scroll to reopen it.
-  const chromeStateByTab = useRef<Partial<Record<DetailTab, boolean>>>({});
+  const chromeStateByTab = useRef<Partial<Record<PullRequestDetailTab, boolean>>>({});
   useEffect(() => {
     setChromeCondensed(chromeStateByTab.current[tab] ?? false);
   }, [tab]);
   const condensed = chromeCondensed;
-  const scrollerByTab = useRef<Partial<Record<DetailTab, HTMLDivElement | null>>>({});
+  const scrollerByTab = useRef<Partial<Record<PullRequestDetailTab, HTMLDivElement | null>>>({});
   const scrollerRefs = useMemo(
     () => ({
       summary: (node: HTMLDivElement | null) => {
@@ -589,7 +597,7 @@ export function PullRequestDetailPanel({
   const condensedRowRef = useRef<HTMLDivElement | null>(null);
   // Refund after the fold commits so the content under the reader does not jump with its height.
   const compensationRef = useRef<{
-    tab: DetailTab;
+    tab: PullRequestDetailTab;
     scroller: HTMLDivElement;
     delta: number;
   } | null>(null);
@@ -1125,7 +1133,7 @@ export function PullRequestDetailPanel({
   });
   const writeGuide = () => {
     void guideWriter.write();
-    if (guideWriter.data?.guide == null) setTab("guide");
+    if (guideWriter.data?.guide == null) selectTab("guide");
   };
 
   const writeTaskToComposer = (target: ScopedThreadRef | DraftId, task: ThreadTask) => {
@@ -2790,7 +2798,7 @@ export function PullRequestDetailPanel({
           <PullRequestDetailTabBar
             tabs={visibleTabs}
             value={tab}
-            onValueChange={setTab}
+            onValueChange={selectTab}
             onTabIntent={(item) => {
               if (item === "code") void loadCodeTab();
             }}

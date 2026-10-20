@@ -11067,7 +11067,7 @@ export default function ChatView(props: ChatViewProps) {
         shortcutsEnabled={
           rightPanelOpen && activeRightPanelSurface?.id === renderedRightPanelSurface.id
         }
-        key={`${renderedRightPanelSurface.host ?? ""}:${renderedRightPanelSurface.repository}#${renderedRightPanelSurface.number}`}
+        key={`${activeThreadRef ? scopedThreadKey(activeThreadRef) : ""}:${renderedRightPanelSurface.id}`}
         environmentId={activeThread.environmentId}
         onSelectPullRequest={(reference) => {
           if (activeThreadRef)
@@ -11077,6 +11077,13 @@ export default function ChatView(props: ChatViewProps) {
               number: reference.number,
               ...(reference.host ? { host: reference.host } : {}),
             });
+        }}
+        initialTab={renderedRightPanelSurface.detailTab ?? "summary"}
+        onTabChange={(tab) => {
+          if (activeThreadRef)
+            useRightPanelStore
+              .getState()
+              .setPullRequestDetailTab(activeThreadRef, renderedRightPanelSurface.id, tab);
         }}
         threadRef={activeThreadRef}
         reference={{
