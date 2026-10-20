@@ -1138,10 +1138,7 @@ describe("PiAdapterV2", () => {
           message: "Ordering barrier",
         });
         yield* takeEvent(
-          (event) =>
-            event.type === "turn_item.updated" &&
-            event.turnItem.type === "dynamic_tool" &&
-            event.turnItem.toolName === "notify",
+          (event) => event.type === "turn_item.updated" && event.turnItem.type === "system_notice",
         );
         assert.equal(runtime.providerSession.status, "running");
         fake.queueState({ isStreaming: true });
@@ -2770,12 +2767,23 @@ describe("PiAdapterV2", () => {
         type: "extension_ui_request",
         id: "ui-cmd",
         method: "notify",
-        message: "done",
+        message: "Command finished\nwith details",
         notifyType: "info",
       });
       yield* fake.emit({ type: "response", command: "prompt", success: true });
       // The adapter probes get_state (auto-acked idle by the fake), then
       // settles the turn as completed.
+      const notice = yield* takeEvent(
+        (event) =>
+          (event.type === "turn_item.updated" && event.turnItem.type === "system_notice") ||
+          event.type === "turn.terminal",
+      );
+      assert.isTrue(
+        notice.type === "turn_item.updated" &&
+          notice.turnItem.type === "system_notice" &&
+          notice.turnItem.status === "completed" &&
+          notice.turnItem.message === "Command finished\nwith details",
+      );
       const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
       assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
