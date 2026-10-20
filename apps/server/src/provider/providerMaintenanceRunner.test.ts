@@ -198,6 +198,7 @@ function makeRegistry(
       getProviders: Ref.get(providersRef),
       refresh: () => Ref.get(providersRef),
       refreshInstance: () => Ref.get(providersRef),
+      refreshAfterUpdate: () => Ref.get(providersRef),
       refreshWorkspaceSnapshot: () => Ref.get(providersRef),
       getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
         Effect.succeed(lifecycleFor(provider)),
@@ -292,7 +293,7 @@ describe("providerMaintenanceRunner", () => {
       // After the update, the refreshed snapshot no longer sees an install.
       const updater = yield* makeTestRunner({
         ...registry,
-        refreshInstance: () =>
+        refreshAfterUpdate: () =>
           Ref.updateAndGet(providersRef, (providers) =>
             providers.map((provider) => ({ ...provider, installed: false, version: null })),
           ),
@@ -320,7 +321,7 @@ describe("providerMaintenanceRunner", () => {
         // A native CLI version probe can fail immediately after a successful update.
         const updater = yield* makeTestRunner({
           ...registry,
-          refreshInstance: () =>
+          refreshAfterUpdate: () =>
             Ref.updateAndGet(providersRef, (providers) =>
               providers.map((provider) => ({ ...provider, installed: true, version: null })),
             ),
@@ -596,77 +597,34 @@ describe("providerMaintenanceRunner", () => {
     },
   );
 
-  it.effect("updates a single provider instance without touching sibling instances", () => {
-    const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
-    return Effect.gen(function* () {
-      const personalInstanceId = ProviderInstanceId.make("codex_personal");
-      const workInstanceId = ProviderInstanceId.make("codex_work");
-      const refreshedInstanceIds: Array<ProviderInstanceId> = [];
-      const { registry } = yield* makeRegistry([
-        {
-          ...baseProvider,
-          instanceId: personalInstanceId,
-          version: "0.124.0-alpha.3",
-        },
-        {
-          ...baseProvider,
-          instanceId: workInstanceId,
-          version: "0.124.0-alpha.3",
-        },
-      ]);
+  it.effect("does not report verified success when selected-instance discovery fails", () =>
+    Effect.gen(function* () {
+      const { registry, providersRef } = yield* makeRegistry(baseNativeCliProvider);
       const updater = yield* makeTestRunner({
         ...registry,
-        getProviderMaintenanceCapabilitiesForInstance: (instanceId, provider) =>
-          Effect.succeed(
-            makeProviderMaintenanceCapabilities({
-              provider,
-              packageName: "@openai/codex-instance-test",
-              updateExecutable: "vp",
-              updateArgs: ["i", "-g", "@openai/codex"],
-              updateLockKey: "vite-plus-global",
-            }),
-          ).pipe(
-            Effect.tap(() => Effect.sync(() => assert.strictEqual(instanceId, personalInstanceId))),
-          ),
-        refreshInstance: (instanceId) =>
-          registry.refreshInstance(instanceId).pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                refreshedInstanceIds.push(instanceId);
-              }),
-            ),
+        refreshAfterUpdate: () =>
+          Ref.updateAndGet(providersRef, (providers) =>
+            providers.map((provider) => ({
+              ...provider,
+              status: "error",
+              message: "Discovery failed.",
+            })),
           ),
       });
-
-      const result = yield* updater.updateProvider({
-        provider: CODEX_DRIVER,
-        instanceId: personalInstanceId,
-      });
-
-      assert.deepStrictEqual(calls, [
-        {
-          command: "vp",
-          args: ["i", "-g", "@openai/codex"],
-        },
-      ]);
-      assert.deepStrictEqual(refreshedInstanceIds, [personalInstanceId]);
-      assert.strictEqual(result.providers[0]?.instanceId, personalInstanceId);
-      assert.strictEqual(result.providers[0]?.updateState?.status, "succeeded");
-      assert.strictEqual(result.providers[1]?.instanceId, workInstanceId);
-      assert.strictEqual(result.providers[1]?.updateState, undefined);
+      const result = yield* updater.updateProvider(NATIVE_CLI_DRIVER);
+      assert.strictEqual(result.providers[0]?.status, "error");
+      assert.strictEqual(result.providers[0]?.updateState?.status, "unchanged");
+      assert.match(result.providers[0]?.updateState?.message ?? "", /could not verify/);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
           layerNonWindowsPlatform,
-          layerLatestVersionHttpClient("0.124.0-alpha.3"),
-          layerMockSpawner((command, args) => {
-            calls.push({ command, args });
-            return { stdout: "updated" };
-          }),
+          layerLatestVersionHttpClient("0.0.0"),
+          layerMockSpawner(() => ({ stdout: "updated" })),
         ),
       ),
-    );
-  });
+    ),
+  );
 
   it.effect("records command failure output in provider update state", () =>
     Effect.gen(function* () {
@@ -1038,7 +996,7 @@ it.effect.each([
         {
           ...registry,
           getProviderMaintenanceCapabilitiesForInstance: () => Effect.succeed(pinnedCapabilities),
-          refreshInstance: () =>
+          refreshAfterUpdate: () =>
             Effect.gen(function* () {
               assert.strictEqual(calls.length, 1);
               const refreshed = yield* enrichProviderSnapshotWithVersionAdvisory(
