@@ -1157,7 +1157,7 @@ function MarkdownMermaidCodeBlock({
           </Suspense>
           {/* Find counts the source; a selected match here switches to it. */}
           {searching ? (
-            <pre ref={sourceRevealRef} hidden>
+            <pre ref={sourceRevealRef} hidden aria-hidden>
               {code}
             </pre>
           ) : null}
