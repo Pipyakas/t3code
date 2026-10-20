@@ -923,6 +923,12 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         VcsStatusBroadcaster.layer.pipe(
           Layer.provide(
             Layer.succeed(
+              VcsStatusBroadcaster.VcsAutomaticFetchInterval,
+              Effect.succeed(Duration.seconds(1)),
+            ),
+          ),
+          Layer.provide(
+            Layer.succeed(
               GitWorkflowService.GitWorkflowService,
               Context.get(workflowContext, GitWorkflowService.GitWorkflowService),
             ),
@@ -946,10 +952,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       let snapshotCount = 0;
       for (const cwd of [repoDir, worktreeDir]) {
         yield* Stream.runForEach(
-          broadcaster.streamStatus(
-            { cwd, includeRemote: false },
-            { automaticRemoteRefreshInterval: Effect.succeed(Duration.seconds(1)) },
-          ),
+          broadcaster.streamStatus({ cwd, includeRemote: false }),
           (event) => {
             if (
               cwd === worktreeDir &&
