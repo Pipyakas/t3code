@@ -16,6 +16,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
+import { REASONING_EFFORT_OPTION_IDS } from "@t3tools/client-runtime/state/thread-execution";
 import { memo, useCallback } from "react";
 import { BrainIcon } from "lucide-react";
 import {
@@ -91,6 +92,12 @@ type TraitsPersistence =
     };
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
+
+const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
+  ...REASONING_EFFORT_OPTION_IDS,
+  "thinking",
+]);
+
 
 function DefaultBadge() {
   return (
@@ -535,7 +542,7 @@ export function buildTraitsTriggerDisplay(input: {
       if (
         reasoningLabelIndex === -1 &&
         descriptor.type === "select" &&
-        ["reasoningEffort", "reasoning", "effort", "variant", "thinking"].includes(descriptor.id)
+        REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id)
       ) {
         reasoningLabelIndex = labels.length;
       }
