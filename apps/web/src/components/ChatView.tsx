@@ -1841,9 +1841,17 @@ export default function ChatView(props: ChatViewProps) {
   const threadDetailLoading = threadSyncPhase === "loading";
   // Latest provider-reported context usage (#8144): the newest report wins;
   // stale turns keep the meter alive between turns.
+  const activeProviderThread = serverProjection?.providerThreads.find(
+    (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
+  );
   const activeThreadLiveTokenUsage = useMemo(
-    () => latestProviderTurnTokenUsage(serverProjection?.providerTurns ?? []),
-    [serverProjection?.providerTurns],
+    () =>
+      latestProviderTurnTokenUsage(
+        serverProjection?.providerTurns ?? [],
+        serverProjection,
+        activeProviderThread,
+      ),
+    [serverProjection],
   );
   const serverVisibleTurnItems = useThreadVisibleTurnItems(routeThreadDetailRef);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
@@ -3740,11 +3748,9 @@ export default function ChatView(props: ChatViewProps) {
       deriveLatestContextWindowSnapshot(
         serverVisibleTurnItems ?? [],
         activeThreadLiveTokenUsage,
-        serverProjection?.providerThreads.find(
-          (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
-        ),
+        activeProviderThread,
       ),
-    [activeThreadLiveTokenUsage, serverVisibleTurnItems, serverProjection],
+    [activeThreadLiveTokenUsage, serverVisibleTurnItems, activeProviderThread],
   );
   const pendingBackgroundTasks = useMemo(() => {
     if (serverProjection === null || serverProjection === undefined) {

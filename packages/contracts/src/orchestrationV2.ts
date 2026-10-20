@@ -163,6 +163,23 @@ export const OrchestrationV2ContextTransferResolution = Schema.Union([
 export type OrchestrationV2ContextTransferResolution =
   typeof OrchestrationV2ContextTransferResolution.Type;
 
+/** Live context usage reported by the provider mid-turn (#8144). */
+export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
+  usedTokens: NonNegativeInt,
+  maxTokens: Schema.optional(Schema.NullOr(NonNegativeInt)),
+  inputTokens: Schema.optional(NonNegativeInt),
+  cachedInputTokens: Schema.optional(NonNegativeInt),
+  outputTokens: Schema.optional(NonNegativeInt),
+  reasoningOutputTokens: Schema.optional(NonNegativeInt),
+  /** Prompt cache lifetime the provider wrote with this report. Clients treat
+      the cache as cold once `updatedAt` is this old. */
+  promptCacheTtlMs: Schema.optional(PositiveInt),
+  /** ISO timestamp of the provider's report; string so wire encoding is stable. */
+  updatedAt: Schema.String,
+});
+export type OrchestrationV2ProviderTurnTokenUsage =
+  typeof OrchestrationV2ProviderTurnTokenUsage.Type;
+
 export const OrchestrationV2ContextTransfer = Schema.Struct({
   id: ContextTransferId,
   type: OrchestrationV2ContextTransferType,
@@ -171,6 +188,7 @@ export const OrchestrationV2ContextTransfer = Schema.Struct({
   sourcePoint: OrchestrationV2ContextSourcePoint,
   basePoint: Schema.NullOr(OrchestrationV2ContextSourcePoint),
   sourceProviderInstanceId: Schema.NullOr(ProviderInstanceId),
+  sourceTokenUsage: Schema.optional(OrchestrationV2ProviderTurnTokenUsage),
   targetProviderInstanceId: Schema.NullOr(ProviderInstanceId),
   targetRunId: Schema.NullOr(RunId),
   status: Schema.Literals([
@@ -1057,23 +1075,6 @@ export const OrchestrationV2ContextHandoff = Schema.Struct({
   updatedAt: Schema.DateTimeUtc,
 });
 export type OrchestrationV2ContextHandoff = typeof OrchestrationV2ContextHandoff.Type;
-
-/** Live context usage reported by the provider mid-turn (#8144). */
-export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
-  usedTokens: NonNegativeInt,
-  maxTokens: Schema.optional(Schema.NullOr(NonNegativeInt)),
-  inputTokens: Schema.optional(NonNegativeInt),
-  cachedInputTokens: Schema.optional(NonNegativeInt),
-  outputTokens: Schema.optional(NonNegativeInt),
-  reasoningOutputTokens: Schema.optional(NonNegativeInt),
-  /** Prompt cache lifetime the provider wrote with this report. Clients treat
-      the cache as cold once `updatedAt` is this old. */
-  promptCacheTtlMs: Schema.optional(PositiveInt),
-  /** ISO timestamp of the provider's report; string so wire encoding is stable. */
-  updatedAt: Schema.String,
-});
-export type OrchestrationV2ProviderTurnTokenUsage =
-  typeof OrchestrationV2ProviderTurnTokenUsage.Type;
 
 export const OrchestrationV2ProviderTurn = Schema.Struct({
   id: ProviderTurnId,
