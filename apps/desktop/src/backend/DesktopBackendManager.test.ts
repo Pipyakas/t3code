@@ -267,7 +267,7 @@ describe("DesktopBackendManager", () => {
         assert.equal(spawnedCommand.options.additionalFds?.fd5?.type, "output");
         assert.equal(
           Duration.toMillis(Duration.fromInputUnsafe(spawnedCommand.options.forceKillAfter)),
-          5_000,
+          30_000,
         );
 
         assert.deepEqual(yield* decodeBootstrap(bootstrapJson), configWithObservability);
@@ -1566,7 +1566,7 @@ describe("DesktopBackendManager", () => {
     ),
   );
 
-  it.effect("stopAllPoolInstances bounds the quit finalizer when backends hang", () =>
+  it.effect("stopAllPoolInstances allows slow cleanup but bounds hung backends", () =>
     Effect.scoped(
       Effect.gen(function* () {
         // Each backend's process-scope finalizer reports when it starts and
@@ -1575,9 +1575,10 @@ describe("DesktopBackendManager", () => {
         // a shared flag or a clock advance.
         const teardownStarted = yield* Queue.unbounded<string>();
         const teardownFinished = yield* Queue.unbounded<string>();
-        const allowTeardown = yield* Deferred.make<void>();
+        const allowSlowTeardown = yield* Deferred.make<void>();
+        const allowHungTeardown = yield* Deferred.make<void>();
 
-        const makeInstance = (name: string) =>
+        const makeInstance = (name: string, allowTeardown: Deferred.Deferred<void>) =>
           makeTestInstance({
             spawnerLayer: Layer.succeed(
               ChildProcessSpawner.ChildProcessSpawner,
@@ -1599,8 +1600,8 @@ describe("DesktopBackendManager", () => {
             httpClientLayer: layerHttpClient(() => Effect.never),
           });
 
-        const instance1 = yield* makeInstance("instance1");
-        const instance2 = yield* makeInstance("instance2");
+        const instance1 = yield* makeInstance("instance1", allowSlowTeardown);
+        const instance2 = yield* makeInstance("instance2", allowHungTeardown);
 
         yield* instance1.start;
         yield* instance2.start;
@@ -1621,19 +1622,28 @@ describe("DesktopBackendManager", () => {
         ).pipe(Effect.provide(layerMockPool), Effect.forkChild);
 
         const started = yield* Queue.takeN(teardownStarted, 2);
+        yield* Effect.addFinalizer(() =>
+          Deferred.succeed(allowSlowTeardown, undefined).pipe(
+            Effect.andThen(Deferred.succeed(allowHungTeardown, undefined)),
+          ),
+        );
         assert.deepEqual(started.toSorted(), ["instance1", "instance2"]);
 
-        // Both backends are now hung in teardown. Advancing past the 5s
-        // budget must let the quit finalizer return without them.
-        yield* TestClock.adjust(Duration.seconds(5));
+        // Both backends are now hung in teardown.
+        yield* TestClock.adjust(Duration.seconds(6));
+        assert.isUndefined(quitFiber.pollUnsafe());
+        yield* Deferred.succeed(allowSlowTeardown, undefined);
+        assert.equal(yield* Queue.take(teardownFinished), "instance1");
+        assert.isUndefined(quitFiber.pollUnsafe());
+        yield* TestClock.adjust(Duration.seconds(39));
+
         yield* Fiber.join(quitFiber);
         assert.equal(yield* Queue.size(teardownFinished), 0);
 
         // The timed-out closes keep running in the background and finish
         // once the backends unblock.
-        yield* Deferred.succeed(allowTeardown, undefined);
-        const finished = yield* Queue.takeN(teardownFinished, 2);
-        assert.deepEqual(finished.toSorted(), ["instance1", "instance2"]);
+        yield* Deferred.succeed(allowHungTeardown, undefined);
+        assert.equal(yield* Queue.take(teardownFinished), "instance2");
       }).pipe(Effect.provide(TestClock.layer())),
     ),
   );
