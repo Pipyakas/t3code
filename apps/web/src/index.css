@@ -2133,6 +2133,22 @@ code {
   overflow-wrap: anywhere;
 }
 
+/* Fit expanded tables to wide timeline lanes; narrow lanes keep horizontal
+   scrolling so prose columns remain readable. */
+@container chat-lane (min-width: 36rem) {
+  .chat-markdown .chat-markdown-table-container[data-expanded="true"] table {
+    min-width: 0;
+  }
+
+  .chat-markdown .chat-markdown-table-container[data-expanded="true"] th {
+    white-space: normal;
+  }
+
+  .chat-markdown .chat-markdown-table-container[data-expanded="true"] td {
+    overflow-wrap: break-word;
+  }
+}
+
 :root {
   --diff-addition: var(--success);
   --diff-deletion: var(--destructive);
