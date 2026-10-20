@@ -516,6 +516,18 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
   }
 }
 
+// Validate before resolving the request: adapters may otherwise coerce unusable answers.
+const decodeUserInputAnswers = Schema.decodeUnknownEffect(
+  Schema.Record(
+    Schema.String,
+    Schema.Union([
+      Schema.String,
+      Schema.Array(Schema.String),
+      Schema.Struct({ answers: Schema.Array(Schema.String) }),
+    ]),
+  ),
+);
+
 function pendingThreadTitleGenerationEffect(
   commandId: CommandId,
   threadId: ThreadId,
@@ -7574,6 +7586,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Provider session ${providerSessionId} was not found.`,
         });
       }
+      let answers = command.answers;
+      if (runtimeRequest.kind === "user_input" && answers !== undefined) {
+        const decoded = yield* decodeUserInputAnswers(answers).pipe(mapDispatchError(command));
+        answers = Object.fromEntries(
+          Object.entries(decoded).map(([questionId, answer]) => [
+            questionId,
+            typeof answer === "object" && "answers" in answer ? answer.answers : answer,
+          ]),
+        );
+      }
 
       const now = yield* DateTime.now;
       const resolvedRequest = {
@@ -7581,7 +7603,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         status: "resolved" as const,
         resolvedAt: now,
         ...(command.decision === undefined ? {} : { decision: command.decision }),
-        ...(command.answers === undefined ? {} : { answers: command.answers }),
+        ...(answers === undefined ? {} : { answers }),
       };
       const emitEvent = emit(events, command);
       const requestNode = context.node;
@@ -7640,11 +7662,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           occurredAt: now,
           payload: {
             ...approvalTurnItem,
-            ...(approvalTurnItem.type === "user_input_request" && command.answers !== undefined
+            ...(approvalTurnItem.type === "user_input_request" && answers !== undefined
               ? {
                   questionAnswer: {
                     requestId: command.requestId,
-                    answers: command.answers ?? {},
+                    answers,
                     attachmentsByQuestionId: command.attachmentsByQuestionId ?? {},
                     questionTextById: Object.fromEntries(
                       approvalTurnItem.questions.map((question) => [
@@ -7672,7 +7694,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
         const replies: string[] = [];
         for (const question of approvalTurnItem.questions) {
-          const answer = command.answers?.[question.id];
+          const answer = answers?.[question.id];
           if (typeof answer !== "string" || answer.trim().length === 0) {
             if (question.required === false) continue;
             return yield* new OrchestratorDispatchError({
@@ -7752,7 +7774,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             providerSessionId,
             requestId: command.requestId,
             ...(command.decision === undefined ? {} : { decision: command.decision }),
-            ...(command.answers === undefined ? {} : { answers: command.answers }),
+            ...(answers === undefined ? {} : { answers }),
           },
         } satisfies PendingOrchestrationEffectV2,
       ]);
