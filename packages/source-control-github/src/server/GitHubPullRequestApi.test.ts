@@ -114,8 +114,9 @@ function output(
   truncated = false,
   invalidUtf8 = false,
   headers: Readonly<Record<string, string>> = {},
+  status = 200,
 ): GitHubApi.GitHubRestResponse {
-  return { status: 200, headers, body, truncated, invalidUtf8 };
+  return { status, headers, body, truncated, invalidUtf8 };
 }
 
 /** GitHub's GraphQL quota headers, leaving `remaining` of 5,000 until `resetAt`. */
@@ -929,6 +930,46 @@ layer("GitHubPullRequestApi.layer", (it) => {
         host: "ghe.example.com",
         path: "repos/acme/web/stacks?pull_request=7",
       });
+    }),
+  );
+
+  it.effect("revalidates a polled stack, per credential, so an unchanged one costs no quota", () =>
+    Effect.gen(function* () {
+      const listing = encodeJson([
+        {
+          number: 4,
+          url: "https://api.github.com/repos/acme/poll/stacks/4",
+          base: { ref: "main" },
+          pull_requests: [
+            { number: 9, head: { ref: "feat/nine" }, state: "open", merged_at: null },
+          ],
+        },
+      ]);
+      const read = Effect.flatMap(GitHubPullRequestApi.GitHubPullRequestApi, (cli) =>
+        cli.getPullRequestStack({
+          cwd: "/w",
+          repository: "acme/poll",
+          host: "github.com",
+          number: 9,
+        }),
+      );
+      mockedExecute.mockReturnValueOnce(
+        Effect.succeed(output(listing, false, false, { etag: 'W/"v1"' })),
+      );
+      const first = yield* read;
+      mockedExecute.mockReturnValueOnce(Effect.succeed(output("", false, false, {}, 304)));
+      const second = yield* read;
+      mockedCredential.mockImplementationOnce(() =>
+        Effect.succeed({ token: Redacted.make("other"), fingerprint: "github.com:other" }),
+      );
+      mockedExecute.mockReturnValueOnce(Effect.succeed(output(listing)));
+      yield* read;
+
+      assert.deepStrictEqual(second, first);
+      expect(callAt(0)).not.toHaveProperty("ifNoneMatch");
+      expect(callAt(1)).toMatchObject({ ifNoneMatch: 'W/"v1"' });
+      // Another account never revalidates the first account's answer.
+      expect(callAt(2)).not.toHaveProperty("ifNoneMatch");
     }),
   );
 
