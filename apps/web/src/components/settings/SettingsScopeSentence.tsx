@@ -123,6 +123,13 @@ function EnvironmentScopeMenu({
   const selected = environments.find(
     (environment) => environment.environmentId === environmentValue,
   );
+  const project = groups.find((group) => group.projectKey === value.project);
+  const memberEnvironmentIds = project
+    ? new Set(project.memberProjects.map((member) => member.environmentId))
+    : null;
+  const options = memberEnvironmentIds
+    ? environments.filter((environment) => memberEnvironmentIds.has(environment.environmentId))
+    : environments;
   return (
     <ScopeMenu
       ariaLabel="Environment scope"
@@ -163,7 +170,7 @@ function EnvironmentScopeMenu({
             <MenuSeparator />
           </>
         ) : null}
-        {environments.map((environment) => (
+        {options.map((environment) => (
           <MenuRadioItem
             key={environment.environmentId}
             value={environment.environmentId}
