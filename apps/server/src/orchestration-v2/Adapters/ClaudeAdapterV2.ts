@@ -55,6 +55,7 @@ import {
 import {
   type ChatAttachment,
   ClaudeSettings,
+  TrimmedNonEmptyString,
   defaultInstanceIdForDriver,
   type ModelSelection,
   type OrchestrationV2ConversationMessage,
@@ -124,6 +125,7 @@ import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
 import {
   claudeSignedOutMessage,
   makeClaudeEnvironment,
+  resolveClaudeHomePath,
 } from "../../provider/Drivers/ClaudeHome.ts";
 import {
   BUNDLED_CLAUDE_MODEL_CATALOG,
@@ -3625,6 +3627,52 @@ function applyClaudeTaskTool(
   return new Map(tasks).set(id, { text, status });
 }
 
+const CLAUDE_TASK_TOOL_NAMES = new Set(["TaskCreate", "TaskUpdate", "TaskList"]);
+const decodeClaudeTaskFile = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      id: TrimmedNonEmptyString,
+      subject: TrimmedNonEmptyString,
+      status: Schema.Literals(["pending", "in_progress", "completed"]),
+      metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+    }),
+  ),
+);
+
+const readClaudeTaskList = Effect.fnUntraced(
+  function* (input: {
+    readonly environment: NodeJS.ProcessEnv;
+    readonly cwd: string | null | undefined;
+    readonly nativeThreadId: string;
+  }) {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const configDirOverride = input.environment.CLAUDE_CONFIG_DIR?.trim();
+    const configDir = configDirOverride
+      ? path.resolve(input.cwd ?? ".", configDirOverride)
+      : yield* resolveClaudeHomePath({ homePath: "" });
+    const listId = input.environment.CLAUDE_CODE_TASK_LIST_ID?.trim() || input.nativeThreadId;
+    const directory = path.join(configDir, "tasks", listId.replace(/[^a-zA-Z0-9_-]/g, "-"));
+    const tasks = new Map<string, Omit<OrchestrationV2PlanStep, "id">>();
+    const names = (yield* fileSystem.readDirectory(directory))
+      .filter((name) => /^\d+\.json$/.test(name))
+      .toSorted((left, right) => Number.parseInt(left, 10) - Number.parseInt(right, 10));
+    for (const name of names) {
+      const contents = yield* fileSystem
+        .readFileString(path.join(directory, name))
+        .pipe(Effect.orElseSucceed(() => ""));
+      const task = Option.getOrUndefined(decodeClaudeTaskFile(contents));
+      if (task === undefined || task.metadata?._internal) continue;
+      tasks.set(task.id, {
+        text: task.subject,
+        status: task.status === "in_progress" ? "running" : task.status,
+      });
+    }
+    return tasks;
+  },
+  Effect.orElseSucceed((): ClaudeTaskList | undefined => undefined),
+);
+
 function claudeTaskSteps(tasks: ClaudeTaskList): ReadonlyArray<OrchestrationV2PlanStep> {
   return [...tasks].map(([id, task]) => ({ id: `task-${id}`, ...task }));
 }
@@ -3742,7 +3790,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const openedNativeThreads = yield* Ref.make(new Set<string>());
         const latestPlanByKind = yield* Ref.make(new Map<string, OrchestrationV2PlanArtifact>());
         // Claude 5 task tools edit one list per native session, across turns.
-        const taskListsByNativeThread = yield* Ref.make(new Map<string, ClaudeTaskList>());
+        const taskListsByNativeThread = yield* Ref.make(
+          new Map<string, ClaudeTaskList | undefined>(),
+        );
         const planIdsByNativeItem = yield* Ref.make(
           new Map<string, OrchestrationV2PlanArtifact["id"]>(),
         );
@@ -7917,19 +7967,38 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             yield* emitToolCallArtifacts(artifacts);
             toolCallsFor(context, toolCall).delete(toolCall.nativeItemId);
             // A subagent's task tools must not replace the parent's list.
-            if (parentToolUseId === null && !isClaudeToolResultError(toolResult)) {
+            if (
+              parentToolUseId === null &&
+              !isClaudeToolResultError(toolResult) &&
+              CLAUDE_TASK_TOOL_NAMES.has(toolCall.toolName)
+            ) {
               const taskLists = yield* Ref.get(taskListsByNativeThread);
-              const taskList = applyClaudeTaskTool(
-                taskLists.get(liveQuery.nativeThreadId) ?? new Map(),
-                toolCall.toolName,
-                claudeNativeToolInputValue(toolCall.input),
-                claudeNativeToolOutputValue(output),
+              const knownTaskList = taskLists.get(liveQuery.nativeThreadId);
+              // TaskList already supplies a snapshot. Mutations need Claude's persisted
+              // list once; afterward the cache also records an unavailable store.
+              const storedTaskList =
+                !taskLists.has(liveQuery.nativeThreadId) && toolCall.toolName !== "TaskList"
+                  ? yield* readClaudeTaskList({
+                      environment: adapterOptions.environment,
+                      cwd: context.input.runtimePolicy.cwd,
+                      nativeThreadId: liveQuery.nativeThreadId,
+                    }).pipe(
+                      Effect.provideService(FileSystem.FileSystem, fileSystem),
+                      Effect.provideService(Path.Path, path),
+                    )
+                  : undefined;
+              const taskList =
+                applyClaudeTaskTool(
+                  knownTaskList ?? storedTaskList ?? new Map(),
+                  toolCall.toolName,
+                  claudeNativeToolInputValue(toolCall.input),
+                  claudeNativeToolOutputValue(output),
+                ) ?? storedTaskList;
+              yield* Ref.set(
+                taskListsByNativeThread,
+                new Map(taskLists).set(liveQuery.nativeThreadId, taskList ?? knownTaskList),
               );
               if (taskList !== undefined) {
-                yield* Ref.set(
-                  taskListsByNativeThread,
-                  new Map(taskLists).set(liveQuery.nativeThreadId, taskList),
-                );
                 // One list per turn, updated in place; a later turn supersedes it.
                 yield* emitClaudePlanProjection({
                   context,
