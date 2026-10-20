@@ -264,6 +264,7 @@ export function NewTaskBranchPickerRouteScreen() {
     AuthSourceControlWriteScope,
   );
   const navigation = useNavigation();
+  const readRefs = useAtomCommand(vcsEnvironment.readRefs, { reportFailure: false });
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const [switchingBranchName, setSwitchingBranchName] = useState<string | null>(null);
   const selectingBranchNameRef = useRef<string | null>(null);
@@ -308,6 +309,7 @@ export function NewTaskBranchPickerRouteScreen() {
           branch,
           project: flow.selectedProject,
           workspaceMode: flow.workspaceMode,
+          readRefs,
           switchRef,
         });
         if (result._tag === "Failure") {
@@ -346,6 +348,7 @@ export function NewTaskBranchPickerRouteScreen() {
       flow.setBranchQuery,
       flow.workspaceMode,
       navigation,
+      readRefs,
       switchRef,
     ],
   );
