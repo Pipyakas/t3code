@@ -54,6 +54,7 @@ import {
   type ProviderInstanceId,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
+  ProviderRequestKind,
   type RuntimeMode,
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
@@ -434,6 +435,53 @@ function isTerminalTaskStatus(
     status === "cancelled" ||
     status === "interrupted"
   );
+}
+
+function endsTaskWait(result: OrchestratorMcpDelegateTaskResult): boolean {
+  return (
+    result.hasPendingQuestion ||
+    result.pendingApproval !== null ||
+    isTerminalTaskStatus(result.status)
+  );
+}
+
+const isApprovalRequestKind = Schema.is(ProviderRequestKind);
+
+function pendingTaskApproval(
+  child: Pick<OrchestrationV2ThreadProjection, "runs" | "nodes" | "runtimeRequests">,
+  taskId: NodeId,
+  originalRun: OrchestrationV2Run | undefined,
+) {
+  const taskRunIds = new Set(
+    child.runs
+      .filter(
+        (run) =>
+          !ThreadManagementService.isTerminalRunStatus(run.status) &&
+          (run.delegatedTaskId === taskId ||
+            // Legacy tasks own only their original run, not later turns in the child thread.
+            (run.delegatedTaskId === undefined && run.id === originalRun?.id)),
+      )
+      .map((run) => run.id),
+  );
+  let approval: OrchestratorMcpDelegateTaskResult["pendingApproval"] = null;
+  let oldestCreatedAt = Infinity;
+  for (const request of child.runtimeRequests) {
+    if (
+      request.status !== "pending" ||
+      request.responseCapability.type !== "live" ||
+      !isApprovalRequestKind(request.kind)
+    ) {
+      continue;
+    }
+    const runId = child.nodes.find((node) => node.id === request.nodeId)?.runId;
+    if (runId === undefined || runId === null || !taskRunIds.has(runId)) continue;
+    const createdAt = DateTime.toEpochMillis(request.createdAt);
+    if (createdAt < oldestCreatedAt) {
+      oldestCreatedAt = createdAt;
+      approval = { requestId: request.id, kind: request.kind, runId };
+    }
+  }
+  return approval;
 }
 
 function directAppOwnedChildTasks(
@@ -1423,8 +1471,9 @@ const make = Effect.gen(function* () {
             "subagents",
             "providerThreads",
             "runtimeRequests",
+            "nodes",
           ],
-          { messageRoles: ["user"] },
+          { messageRoles: ["user"], omitSettledLeafNodes: true },
         )
         .pipe(Effect.mapError(threadManagementFailure));
       const childRun = delegatedTaskRun(childControls, task);
@@ -1544,6 +1593,10 @@ const make = Effect.gen(function* () {
               request.status === "pending" &&
               request.responseCapability.type === "live",
           ),
+        pendingApproval:
+          isTerminalTaskStatus(status) || task.completionDelivery?.state === "disposed"
+            ? null
+            : pendingTaskApproval(childControls, task.id, childRun),
         waitTimedOut,
       } satisfies OrchestratorMcpDelegateTaskResult;
       if (
@@ -1596,7 +1649,7 @@ const make = Effect.gen(function* () {
         .getThreadEventSequence(scope.thread.threadId)
         .pipe(Effect.mapError(streamError));
       const initial = yield* readTask(scope, taskId, false, true);
-      if (initial.hasPendingQuestion || isTerminalTaskStatus(initial.status)) {
+      if (endsTaskWait(initial)) {
         return Option.some(initial);
       }
       // One stream per event type, so transcript events never fill a buffer.
@@ -1612,7 +1665,7 @@ const make = Effect.gen(function* () {
       ).pipe(
         Stream.mapError(streamError),
         Stream.mapEffect(() => readTask(scope, taskId, false, true)),
-        Stream.filter((result) => result.hasPendingQuestion || isTerminalTaskStatus(result.status)),
+        Stream.filter(endsTaskWait),
         Stream.runHead,
       );
     }).pipe(Effect.timeoutOption(Duration.millis(timeoutMs)), Effect.map(Option.flatten));
