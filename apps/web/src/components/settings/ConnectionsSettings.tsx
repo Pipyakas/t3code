@@ -70,6 +70,7 @@ import {
   canRevokeOtherClients,
   isQrShareableEndpoint,
   isWslSettingsRowVisible,
+  resolveLocalVersionStatusLabel,
   selectQrEndpointOption,
   togglePairingScopeSelection,
 } from "./ConnectionsSettings.logic";
@@ -175,6 +176,7 @@ import {
 } from "~/state/desktopNetworkAccess";
 import { desktopSshHostsStateAtom, filterDiscoveredSshHosts } from "~/state/desktopSshHosts";
 import { desktopWslStateAtom, refreshDesktopWslState } from "~/state/desktopWslState";
+import { useDesktopUpdateState } from "~/state/desktopUpdate";
 import {
   type EnvironmentPresentation,
   useEnvironments,
@@ -2042,6 +2044,16 @@ function CloudRemoteEnvironmentRows({
   ) : null;
 }
 
+// Subscribes on its own so desktop download progress does not re-render the page.
+function LocalVersionStatusLabel() {
+  const updateState = useDesktopUpdateState();
+  return (
+    <span className="text-xs text-muted-foreground">
+      {resolveLocalVersionStatusLabel(updateState)}
+    </span>
+  );
+}
+
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -3712,7 +3724,7 @@ export function ConnectionsSettings() {
                       }
                     />
                   ) : primaryServerUpdateState.status === "idle" && primaryServerConfig ? (
-                    <span className="text-xs text-muted-foreground">Up to date</span>
+                    <LocalVersionStatusLabel />
                   ) : undefined
                 }
               />
