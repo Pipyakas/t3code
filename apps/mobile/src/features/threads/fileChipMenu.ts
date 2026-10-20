@@ -1,3 +1,4 @@
+import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
 import { fileBasename } from "@t3tools/shared/path";
 import type { ThreadId } from "@t3tools/contracts";
 import { resolveMarkdownLinkPresentation } from "../../lib/markdownLinks";
@@ -10,8 +11,6 @@ import {
   resolveWorkspaceRelativeFilePath,
 } from "../files/filePath";
 
-export type FileChipAction = "copy-full-path" | "copy-relative-path" | "open-file" | "save";
-
 export interface FileChipTarget {
   /** The host path, when the link is absolute or the workspace root is known. */
   readonly fullPath?: string;
@@ -20,6 +19,14 @@ export interface FileChipTarget {
 }
 
 /** Null when the link is not a file or resolves nowhere the feed can open, such as `~/x` or `../x`. */
+export function fileChipClipboardPath(
+  target: FileChipTarget,
+  action: "copy-full-path" | "copy-relative-path",
+): string | undefined {
+  const path = action === "copy-full-path" ? target.fullPath : target.relativePath;
+  return path === undefined ? undefined : formatFilePathForClipboard(path, target.fullPath);
+}
+
 export function resolveFileChipTarget(
   href: string,
   workspaceRoot: string | null | undefined,

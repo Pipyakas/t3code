@@ -1,3 +1,4 @@
+import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
 import { MarkdownFindContext, useFindRevealRef } from "./chat/markdownFindContext";
 import {
   buildFileLinkParentSuffixByPath,
@@ -2160,12 +2161,13 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         return;
       }
 
-      void navigator.clipboard.writeText(value).then(
+      const copiedPath = formatFilePathForClipboard(value, targetPath);
+      void navigator.clipboard.writeText(copiedPath).then(
         () => {
           toastManager.add({
             type: "success",
             title: `${title} copied`,
-            description: value,
+            description: copiedPath,
           });
         },
         (error) => {
