@@ -48,6 +48,9 @@ it("keeps machine choices usable when the combined row's workspace is locked", a
           panelSection="workspace"
           environmentId={EnvironmentId.make("local")}
           threadId={ThreadId.make("thread")}
+          projectId={ProjectId.make("project")}
+          worktreePath={state.worktreePath}
+          isServerThread
           showGitControls
           envMode="local"
           envLocked={false}
@@ -108,6 +111,9 @@ it.each([
             panelSection="workspace"
             environmentId={EnvironmentId.make("local")}
             threadId={ThreadId.make("thread")}
+            projectId={ProjectId.make("project")}
+            worktreePath={state.worktreePath}
+            isServerThread
             showGitControls
             envMode={envMode}
             envLocked={false}

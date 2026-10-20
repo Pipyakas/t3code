@@ -1,4 +1,4 @@
-import type { EnvironmentId, T3ProjectFileScript, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, T3ProjectFileScript, ThreadId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PopoverCreateHandle } from "../ui/popover";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -58,6 +58,9 @@ describe("ThreadDetailsPanel", () => {
       onPresentationChange: vi.fn(),
       environmentId,
       threadId: "thread:thread-details" as ThreadId,
+      projectId: "project" as ProjectId,
+      worktreePath: null,
+      isServerThread: true,
       activeProjectName: undefined,
       activeProjectScripts: [],
       preferredScriptId: null,
