@@ -175,7 +175,7 @@ export const resolveTailscaleLocalTarget = (
   }
   // A server bound to one specific interface does not answer on loopback, so
   // the proxy has to target that interface directly.
-  if (state.host !== undefined && !isWildcardHost(state.host) && !isLoopbackHost(state.host)) {
+  if (state.host !== undefined && !isWildcardHost(state.host)) {
     return { localPort: state.port, localHost: formatHostForUrl(state.host) };
   }
   return { localPort: state.port };
