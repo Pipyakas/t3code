@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { HttpClient } from "effect/http";
 
 import * as AzureDevOpsCli from "@t3tools/source-control-azure-devops/server/AzureDevOpsCli";
 import * as AzureDevOpsPullRequestCli from "@t3tools/source-control-azure-devops/server/AzureDevOpsPullRequestCli";
@@ -11,9 +12,10 @@ import * as BitbucketPullRequestApi from "@t3tools/source-control-bitbucket/serv
 import * as ForgejoCli from "@t3tools/source-control-forgejo/server/ForgejoCli";
 import * as GitCafeApi from "@t3tools/source-control-gitcafe/server/GitCafeApi";
 import * as GitCafeCredentials from "@t3tools/source-control-gitcafe/server/GitCafeCredentials";
-import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
 import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 import * as GitHubPullRequestApi from "@t3tools/source-control-github/server/GitHubPullRequestApi";
+import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
 import * as GitLabCli from "@t3tools/source-control-gitlab/server/GitLabCli";
 import * as GitLabPullRequestCli from "@t3tools/source-control-gitlab/server/GitLabPullRequestCli";
 
@@ -47,7 +49,13 @@ const makeRegistry = (settings: ServerSettings.ServerSettingsService["Service"])
         Layer.mock(GitCafeCredentials.GitCafeCredentials)({
           cliEnv: () => Effect.succeed({}),
         }),
-        Layer.mock(GitHubApi.GitHubApi)({
+        // The GitHub provider's GraphQL reads go through these; no test here makes one.
+        Layer.mock(GitHubRequestPolicy.GitHubRequestPolicy)({}),
+        Layer.succeed(
+          HttpClient.HttpClient,
+          HttpClient.make(() => Effect.die(new Error("Unexpected GitHub GraphQL read"))),
+        ),
+        Layer.mock(GitHubRest.GitHubRest)({
           // Registration does not depend on a signed-in account; only the calls do.
           credential: (host) => Effect.fail(new GitHubCredentials.GitHubNotSignedInError({ host })),
         }),
