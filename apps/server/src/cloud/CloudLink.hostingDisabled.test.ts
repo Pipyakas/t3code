@@ -4,6 +4,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as NetAddress from "effect/net/NetAddress";
+import * as Option from "effect/Option";
 import { HttpClient, HttpServer } from "effect/http";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
@@ -13,6 +14,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as AgentAwarenessRelay from "../relay/AgentAwarenessRelay.ts";
 import * as CliTokenManager from "./CliTokenManager.ts";
+import * as ConnectReachability from "./ConnectReachability.ts";
 import * as CloudLink from "./CloudLink.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
 
@@ -35,6 +37,9 @@ const withDisabledLink = <A, E>(effect: Effect.Effect<A, E, CloudLink.CloudLink>
           }),
           Layer.mock(AgentAwarenessRelay.AgentAwarenessRelay)({}),
           Layer.mock(ManagedEndpointRuntime.CloudManagedEndpointRuntime)({}),
+          Layer.mock(ConnectReachability.ConnectReachability)({
+            latest: Effect.succeed(Option.none()),
+          }),
           Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
           Layer.mock(CliTokenManager.CloudCliTokenManager)({}),
           Layer.mock(HttpServer.HttpServer)({
@@ -117,6 +122,9 @@ it.effect("with the flag unset uses the real link service (upstream behaviour)",
               requestCatchUp: () => Effect.void,
             }),
             Layer.mock(ManagedEndpointRuntime.CloudManagedEndpointRuntime)({}),
+            Layer.mock(ConnectReachability.ConnectReachability)({
+              latest: Effect.succeed(Option.none()),
+            }),
             Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
             Layer.mock(CliTokenManager.CloudCliTokenManager)({}),
             Layer.mock(HttpServer.HttpServer)({
