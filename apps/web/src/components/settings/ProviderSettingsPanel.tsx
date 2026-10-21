@@ -1355,6 +1355,7 @@ function ProviderInstanceRow({
   projectOverrideEffectiveEnabled,
   modelPreferences,
   favorites,
+  sortable,
   actions,
 }: {
   readonly environmentId: EnvironmentId;
@@ -1377,6 +1378,8 @@ function ProviderInstanceRow({
     | { readonly hiddenModels: ReadonlyArray<string>; readonly modelOrder: ReadonlyArray<string> }
     | undefined;
   readonly favorites: UnifiedSettings["favorites"];
+  /** Drag-to-reorder wiring for a list row; the editor never gets one. */
+  readonly sortable?: ProviderRowSortableProps | undefined;
   readonly actions: ProviderInstanceRowActions;
 }) {
   const allProjects = useProjects();
@@ -1427,6 +1430,7 @@ function ProviderInstanceRow({
     <ProviderInstanceCard
       environmentId={environmentId}
       acpProjects={acpProjects}
+      sortable={sortable}
       projectOverride={projectOverride}
       onAcceptUrlAuth={
         readOnly ? undefined : (action) => actions.acceptUrlAuthentication(instanceId, action)

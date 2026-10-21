@@ -278,7 +278,7 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
         currentDesktopBootstrapToken(Hex.encode(stored.value), yield* Clock.currentTimeMillis),
       );
       expect(grant.method).toBe("desktop-bootstrap");
-      expect(grant.scopes).toEqual(AuthAdministrativeScopes);
+      expect(grant.scopes).toEqual(AuthStandardClientScopes);
     }).pipe(
       Effect.provide(layerPairingGrantStore().pipe(Layer.provide(layerServiceLauncherChild))),
     ),
