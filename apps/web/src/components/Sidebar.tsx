@@ -163,7 +163,8 @@ import {
   useAllEnvironmentProjectSnapshotsReady,
   useProjects,
   useServerConfigs,
-  useThreadShells,
+  useQuietThreadShells,
+  useThreadShell,
 } from "../state/entities";
 import { environmentPresentations } from "../state/presentation";
 import { primaryServerKeybindingsAtom } from "../state/server";
@@ -454,7 +455,7 @@ function useSidebarThreads(input: {
 }) {
   const { projectScopeKey, scopedProjectKeys, serverConfigs, optimisticDrop, routeThreadRef } =
     input;
-  const threads = useThreadShells();
+  const threads = useQuietThreadShells();
   const routeRowThreadKey =
     routeThreadRef === null
       ? null
@@ -1172,8 +1173,13 @@ function SortableThreadRow(
     transition: contextDrag && isDragging ? "transform 150ms ease-out" : transition,
     isDragging: isDragging && !contextDrag,
   };
+  // The sidebar arranges rows from quiet shells, which hold still while a
+  // thread streams; reading the live shell here re-renders only this row.
+  const thread =
+    useThreadShell(scopeThreadRef(rowProps.thread.environmentId, rowProps.thread.id)) ??
+    rowProps.thread;
   // Keyed by variant so a card/slim switch remounts the row.
-  return <SidebarThreadRow key={rowProps.variant} {...rowProps} sortable={bag} />;
+  return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
 }
 
 const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
@@ -2550,7 +2556,8 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   onSelect: () => void;
   onFileDropThreads: (threadRef: ScopedThreadRef, files: File[]) => void;
 }) {
-  const { thread } = props;
+  const thread =
+    useThreadShell(scopeThreadRef(props.thread.environmentId, props.thread.id)) ?? props.thread;
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: null,
