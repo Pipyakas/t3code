@@ -24,6 +24,7 @@ describe("projectThreadAwarenessV2", () => {
       Pick<
         OrchestrationV2ThreadShell,
         | "activityRunStatus"
+        | "latestRunStopRequested"
         | "status"
         | "pendingBackgroundTasks"
         | "pendingRuntimeRequest"
@@ -55,6 +56,21 @@ describe("projectThreadAwarenessV2", () => {
         thread: v2Thread(),
       }),
     ).toMatchObject({ phase: "running", headline: "Agent is working" });
+  });
+
+  it("does not announce completion after a manual stop", () => {
+    const input = {
+      environmentId: "env-1" as EnvironmentId,
+      project,
+      thread: v2Thread({ status: "completed" }),
+    };
+    expect(projectThreadAwarenessV2(input)?.phase).toBe("completed");
+    expect(
+      projectThreadAwarenessV2({
+        ...input,
+        thread: { ...input.thread, latestRunStopRequested: true },
+      }),
+    ).toBeNull();
   });
 
   it.each(["running", "completed", "failed"] as const)(
