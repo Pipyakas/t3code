@@ -157,9 +157,10 @@ describe("RemoteOpenTargets", () => {
         sshd: { ipv4: true, ipv6: true },
         tailscale: TAILSCALE_UP,
         hostname: "bb-1",
+        username: "t3-user",
         offline: true,
       });
-      expect(targets).toEqual([{ kind: "mdns", host: "bb-1.local" }]);
+      expect(targets).toEqual([{ kind: "mdns", host: "bb-1.local", username: "t3-user" }]);
     }),
   );
 
