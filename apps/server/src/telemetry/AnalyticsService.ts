@@ -134,7 +134,6 @@ function serverOsFromNodePlatform(platform: string): ClientOs {
   }
 }
 
-/** @public */
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const telemetryConfig = yield* TelemetryEnvConfig;
@@ -145,6 +144,7 @@ export const make = Effect.gen(function* () {
     return AnalyticsService.of({
       record: () => Effect.void,
       flush: Effect.void,
+      recordOwners: () => Effect.void,
     });
   }
   const httpClient = yield* HttpClient.HttpClient;
