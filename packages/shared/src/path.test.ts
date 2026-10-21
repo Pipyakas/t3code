@@ -102,6 +102,10 @@ describe("workspaceRelativeFilePath", () => {
     ["/tmp/report.ts", "/repo/project", null],
     ["/repo/project-two/a.ts", "/repo/project", null],
     ["/repo/project/a.ts", undefined, null],
+    // regression: #16354 a `..` that leaves the root is a host path, not a workspace path
+    ["/repo/project/../other/notes.md", "/repo/project", null],
+    ["C:\\repo\\project\\src\\..\\..\\notes.md", "C:\\repo\\project", null],
+    ["/repo/project/docs/a/../b.md", "/repo/project", "docs/a/../b.md"],
   ])("relates %s to %s", (path, workspaceRoot, relativePath) => {
     expect(workspaceRelativeFilePath(path, workspaceRoot)).toBe(relativePath);
   });
