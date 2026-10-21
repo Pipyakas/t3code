@@ -2441,8 +2441,14 @@ const program = Effect.gen(function* () {
     return Effect.succeed({});
   });
 
-  yield* agent.handleUnknownExtNotification((method) =>
-    method === "_test/exit" ? Effect.sync(() => process.exit(19)) : Effect.void,
+  yield* agent.handleUnknownExtNotification((method, params) =>
+    method === "_test/exit"
+      ? Effect.sync(() => {
+          const code =
+            typeof params === "object" && params !== null ? Reflect.get(params, "code") : undefined;
+          process.exit(typeof code === "number" ? code : 19);
+        })
+      : Effect.void,
   );
 
   return yield* Effect.never;
