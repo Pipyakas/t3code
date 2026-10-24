@@ -484,6 +484,14 @@ const catalogFingerprint = (models: ReadonlyArray<OpenCode2Model>) =>
     .toSorted()
     .join("\n");
 
+/**
+ * How long one status check waits for the catalog, server start included. A
+ * local instance's server closes when idle, so most checks start a fresh one,
+ * and with several remote providers its first model list can take over 10
+ * seconds to answer. A shorter wait reports an empty catalog every time.
+ */
+const OPENCODE_2_CATALOG_TIMEOUT = "30 seconds";
+
 /** A cold server can list a partial catalog; two agreeing reads reduce that startup race. */
 export const makeOpenCode2ModelLoader = <E>(
   list: Effect.Effect<ReadonlyArray<OpenCode2Model>, E>,
@@ -505,7 +513,7 @@ export const makeOpenCode2ModelLoader = <E>(
           schedule: Schedule.spaced("250 millis"),
         }),
         Effect.catch((error) => (latest.length > 0 ? Effect.succeed(latest) : Effect.fail(error))),
-        Effect.timeoutOption("5 seconds"),
+        Effect.timeoutOption(OPENCODE_2_CATALOG_TIMEOUT),
         Effect.map((loaded) => {
           // Fresh progress may still be partial, but a warm cache must not freeze slow catalogs.
           if (loaded._tag === "Some") lastLoaded = loaded.value;
