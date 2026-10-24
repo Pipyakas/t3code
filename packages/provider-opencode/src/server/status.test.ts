@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
+import * as TestClock from "effect/testing/TestClock";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { beforeEach } from "vite-plus/test";
@@ -21,6 +22,7 @@ import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
 import {
   checkOpenCodeProviderStatus,
   loadOpenCode2Workspace,
+  makeOpenCode2ModelLoader,
   type OpenCode2Model,
   type OpenCode2Workspace,
 } from "./status.ts";
@@ -1005,4 +1007,52 @@ it.effect("reads a fresh OpenCode 2 directory again once its scan has ended", ()
     yield* Deferred.succeed(scanEnded, undefined);
     NodeAssert.deepEqual(yield* Fiber.join(load), scanned);
   }),
+);
+
+it.effect("waits for an OpenCode 2 server whose first model list takes seconds", () =>
+  Effect.gen(function* () {
+    // A fresh server with several remote providers answers its first list
+    // only once its whole catalog has loaded (8-12 s on a Windows host).
+    const model: OpenCode2Model = { providerID: "ccgw", id: "glm", name: "GLM", variants: [] };
+    let reads = 0;
+    const load = yield* makeOpenCode2ModelLoader(
+      Effect.suspend(() => {
+        reads += 1;
+        return reads === 1
+          ? Effect.sleep("12 seconds").pipe(Effect.as([model]))
+          : Effect.succeed([model]);
+      }),
+    );
+    const fiber = yield* load.pipe(Effect.forkChild);
+    yield* TestClock.adjust("13 seconds");
+    NodeAssert.deepEqual(yield* Fiber.join(fiber), [model]);
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+
+it.effect("retries an OpenCode 2 server that refuses its first model list", () =>
+  Effect.gen(function* () {
+    // A cold server can answer its first list with 503 after several seconds.
+    const model: OpenCode2Model = { providerID: "ccgw", id: "glm", name: "GLM", variants: [] };
+    let reads = 0;
+    const load = yield* makeOpenCode2ModelLoader(
+      Effect.suspend(() => {
+        reads += 1;
+        return reads === 1
+          ? Effect.sleep("5 seconds").pipe(Effect.andThen(Effect.fail("unavailable")))
+          : Effect.succeed([model]);
+      }),
+    );
+    const fiber = yield* load.pipe(Effect.forkChild);
+    yield* TestClock.adjust("7 seconds");
+    NodeAssert.deepEqual(yield* Fiber.join(fiber), [model]);
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+
+it.effect("reports a model list that keeps failing once the wait runs out", () =>
+  Effect.gen(function* () {
+    const load = yield* makeOpenCode2ModelLoader(Effect.fail("unavailable"));
+    const fiber = yield* load.pipe(Effect.flip, Effect.forkChild);
+    yield* TestClock.adjust("31 seconds");
+    NodeAssert.equal(yield* Fiber.join(fiber), "unavailable");
+  }).pipe(Effect.provide(TestClock.layer())),
 );
