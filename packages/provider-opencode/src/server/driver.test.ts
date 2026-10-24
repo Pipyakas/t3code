@@ -222,7 +222,12 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
           replayOpenCodeServer(OPENCODE_2_RESPONSES, ""),
         ).pipe(Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, runtime));
 
-        const snapshot = yield* instance.snapshot.refresh;
+        // This replay serves no catalog, and this fork retries a missing catalog for the
+        // whole wait, which the check runs out twice.
+        const refresh = yield* Effect.forkChild(instance.snapshot.refresh);
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("60 seconds");
+        const snapshot = yield* Fiber.join(refresh);
         assert.strictEqual(snapshot.version, "2.0.18");
         assert.strictEqual(snapshot.installedVersion, installedVersion ?? undefined);
         const maintenance = yield* instance.snapshot.resolveMaintenance({ fresh: true });
@@ -509,7 +514,7 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
         );
         yield* Effect.yieldNow;
         yield* Deferred.succeed(releaseCatalog, undefined);
-        yield* TestClock.adjust("5 seconds");
+        yield* TestClock.adjust("30 seconds");
         const [failed] = Array.from(yield* Fiber.join(initial));
         assert.strictEqual(failed?.auth.status, "unknown");
         assert.deepStrictEqual(failed?.models, []);
