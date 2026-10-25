@@ -3,6 +3,7 @@ import * as NodeSqlite from "node:sqlite";
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -24,15 +25,30 @@ const AuthFile = Schema.Struct({ "opencode-go": Schema.optionalKey(Schema.Unknow
 const ApiAuth = Schema.Struct({ type: Schema.Literal("api"), key: Schema.String });
 const decodeAuthFile = Schema.decodeEffect(Schema.fromJsonString(AuthFile));
 const decodeApiAuth = Schema.decodeUnknownOption(ApiAuth);
-// OpenCode 2's database tags a stored key "key"; auth.json tags it "api".
-const StoredKey = Schema.Struct({
-  type: Schema.Literal("key"),
-  key: Schema.String,
-  metadata: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({ server: Schema.optionalKey(Schema.Unknown) })),
+const ConsoleMetadata = Schema.optionalKey(
+  Schema.NullOr(
+    Schema.Struct({
+      server: Schema.optionalKey(Schema.Unknown),
+      accountID: Schema.optionalKey(Schema.Unknown),
+      orgID: Schema.optionalKey(Schema.Unknown),
+    }),
   ),
-});
-const decodeStoredKey = Schema.decodeOption(Schema.fromJsonString(StoredKey));
+);
+// OpenCode 2's database tags a stored key "key"; auth.json tags it "api".
+const ConsoleCredential = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("key"), key: Schema.String, metadata: ConsoleMetadata }),
+  Schema.Struct({
+    type: Schema.Literal("oauth"),
+    access: Schema.String,
+    metadata: ConsoleMetadata,
+  }),
+]);
+const decodeConsoleCredential = Schema.decodeOption(Schema.fromJsonString(ConsoleCredential));
+// OpenCode 2 releases have signed in through both public Console addresses.
+const PUBLIC_CONSOLE_SERVERS = new Set([
+  "https://opencode.ai/console",
+  "https://console.opencode.ai",
+]);
 const UsageWindow = Schema.Struct({
   percent: Schema.Finite,
   resetsAt: Schema.DateTimeUtcFromString,
@@ -41,9 +57,10 @@ const UsageResponse = Schema.Struct({
   usage: Schema.Struct({ rolling: UsageWindow, weekly: UsageWindow, monthly: UsageWindow }),
 });
 
-// Select before decoding so an OAuth or self-hosted connection cannot fall
-// through to another stored account. NULL-active rows predate the selection flag.
-const readStoredApiKey = (databasePath: string, integrationId: "opencode" | "opencode-go") =>
+// Select before decoding so a self-hosted connection cannot fall through to
+// another stored account. NULL-active rows predate the selection flag. T3 never
+// refreshes a sign-in: Console rotates refresh tokens, and OpenCode owns renewal.
+const readConsoleCredential = (databasePath: string, integrationId: "opencode" | "opencode-go") =>
   Effect.try(() => {
     const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -57,15 +74,24 @@ const readStoredApiKey = (databasePath: string, integrationId: "opencode" | "ope
         .get(integrationId);
       const stored =
         typeof row?.value === "string"
-          ? Option.getOrUndefined(decodeStoredKey(row.value))
+          ? Option.getOrUndefined(decodeConsoleCredential(row.value))
           : undefined;
-      const server = stored?.metadata?.server;
+      if (!stored) return undefined;
+      const { server, accountID, orgID } = stored.metadata ?? {};
       if (typeof server === "string") {
         const url = new URL(server);
-        if (`${url.origin}${url.pathname.replace(/\/+$/, "")}` !== "https://opencode.ai/console")
+        if (!PUBLIC_CONSOLE_SERVERS.has(`${url.origin}${url.pathname.replace(/\/+$/, "")}`))
           return undefined;
       }
-      return stored?.key.trim();
+      if (stored.type === "key") return { token: stored.key.trim() };
+      return {
+        token: stored.access.trim(),
+        // Each device signs in with its own token, so only the account matches across environments.
+        account:
+          typeof accountID === "string"
+            ? `${accountID}\0${typeof orgID === "string" ? orgID : ""}`
+            : undefined,
+      };
     } finally {
       database.close();
     }
@@ -109,17 +135,23 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
     // overrides local credentials, including the Console connection.
     const databaseFile = env.OPENCODE_DB ?? "opencode.db";
     const databasePath = path.resolve(dataHome, "opencode", databaseFile);
-    const storedKeys =
+    const storedCredentials =
       env.OPENCODE_AUTH_CONTENT || databaseFile === ":memory:"
         ? []
         : [
-            yield* readStoredApiKey(databasePath, "opencode"),
+            yield* readConsoleCredential(databasePath, "opencode"),
             // OpenCode 2 imports auth.json once, so a replaced Go key only exists here.
-            yield* readStoredApiKey(databasePath, "opencode-go"),
+            yield* readConsoleCredential(databasePath, "opencode-go"),
           ];
-    const keys = [...new Set([...storedKeys, goKey].filter((key): key is string => Boolean(key)))];
-    let apiKey = keys[0];
-    if (!apiKey) return unsupported;
+    const credentials: Array<{ readonly token: string; readonly account?: string | undefined }> =
+      [];
+    for (const candidate of [...storedCredentials, goKey ? { token: goKey } : undefined]) {
+      if (candidate?.token && !credentials.some((known) => known.token === candidate.token)) {
+        credentials.push(candidate);
+      }
+    }
+    let credential = credentials[0];
+    if (!credential) return unsupported;
 
     const client = yield* HttpClient.HttpClient;
     const readUsage = (key: string) =>
@@ -128,11 +160,11 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
           HttpClientRequest.bearerToken(key),
         ),
       );
-    let response = yield* readUsage(apiKey);
-    for (const key of keys.slice(1)) {
+    let response = yield* readUsage(credential.token);
+    for (const next of credentials.slice(1)) {
       if (response.status !== 401 && response.status !== 403) break;
-      apiKey = key;
-      response = yield* readUsage(apiKey);
+      credential = next;
+      response = yield* readUsage(credential.token);
     }
     // A valid Zen key can exist without a Go subscription.
     if (response.status === 403) return unsupported;
@@ -160,14 +192,32 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
         id: "go_monthly",
         kind: "monthly",
         label: "Go · Monthly",
+        // The month runs from the subscription day to the same time a calendar month later,
+        // so its length is the month that ends at the reset.
+        windowDurationMins: Math.round(
+          Duration.toMinutes(
+            DateTime.distance(
+              DateTime.subtract(body.usage.monthly.resetsAt, { months: 1 }),
+              body.usage.monthly.resetsAt,
+            ),
+          ),
+        ),
         usedPercent: clampPercent(body.usage.monthly.percent),
         resetsAt: DateTime.formatIso(body.usage.monthly.resetsAt),
       },
     ];
     const digest = yield* Digest.Digest;
-    // Unkeyed hashes match across environments; random Go keys resist offline guessing.
+    // An unkeyed hash matches across environments without a shared secret. It
+    // permits offline guesses, but Go keys are randomly generated, and a Console
+    // sign-in hashes only account IDs, never its token.
+    const account = credential.account;
     const credentialFingerprint = yield* digest
-      .digest(Digest.sha256, new TextEncoder().encode(`opencode-go\0${apiKey}`))
+      .digest(
+        Digest.sha256,
+        new TextEncoder().encode(
+          account ? `opencode-go\0console\0${account}` : `opencode-go\0${credential.token}`,
+        ),
+      )
       .pipe(Effect.map(Hex.encode), Effect.orDie);
     return {
       ...makeUsageLimits({ checkedAt, windows }),
