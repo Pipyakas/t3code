@@ -41,6 +41,8 @@ const DEFAULT_VERSION_STDOUT = "opencode 1.14.19\n";
 it.effect("reads Go limits with the instance's XDG credentials and preserves reset times", () =>
   Effect.gen(function* () {
     const resetsAt = "2026-09-17T12:00:00.000Z";
+    // September has 30 days, so the Go month ending on 2 October is 30 days long.
+    const monthlyResetsAt = "2026-10-02T09:30:00.000Z";
     const limits = yield* readOpenCodeGoUsageLimits({
       enabled: true,
       serverUrl: "",
@@ -69,7 +71,7 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
                 usage: {
                   rolling: { percent: 0, resetsAt },
                   weekly: { percent: 10, resetsAt },
-                  monthly: { percent: 125, resetsAt },
+                  monthly: { percent: 125, resetsAt: monthlyResetsAt },
                 },
               }),
             ),
@@ -84,15 +86,21 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
       "aba48e85c981a8edc1c9fb4575121accc7235fa55d0f8689f66f153de5566a37",
     );
     NodeAssert.deepEqual(
-      limits.windows.map(({ kind, usedPercent, resetsAt: reset }) => ({
+      limits.windows.map(({ kind, usedPercent, resetsAt: reset, windowDurationMins }) => ({
         kind,
         usedPercent,
         reset,
+        windowDurationMins,
       })),
       [
-        { kind: "session", usedPercent: 0, reset: resetsAt },
-        { kind: "weekly", usedPercent: 10, reset: resetsAt },
-        { kind: "monthly", usedPercent: 100, reset: resetsAt },
+        { kind: "session", usedPercent: 0, reset: resetsAt, windowDurationMins: 5 * 60 },
+        { kind: "weekly", usedPercent: 10, reset: resetsAt, windowDurationMins: 7 * 24 * 60 },
+        {
+          kind: "monthly",
+          usedPercent: 100,
+          reset: monthlyResetsAt,
+          windowDurationMins: 30 * 24 * 60,
+        },
       ],
     );
   }),
@@ -119,15 +127,34 @@ it.effect(
       const insert = database.prepare("INSERT INTO credential VALUES (?, ?, ?, ?, ?, ?)");
       const window = { percent: 1, resetsAt: "2026-09-17T12:00:00.000Z" };
       const consoleKey = { type: "key", key: "console-key" };
+      const consoleLogin = {
+        type: "oauth",
+        methodID: "device",
+        access: "console-token",
+        refresh: "refresh",
+        expires: 0,
+        metadata: {
+          server: "https://opencode.ai/console",
+          accountID: "acc_1",
+          email: "user@example.com",
+          orgID: "org_1",
+          orgName: "Org",
+        },
+      };
+      const consoleAccount = "4c1ad3b022b414b769bf373c1fa50a36e1704129d036b9d1a9fe4cde9999e87e";
       const fingerprints = new Map([
         ["console-key", "3e45cfde9158185930d4cc7020a4e390895574fd54bd8f9631d23a336bbf94f0"],
         ["go-key", "d0e590e93fc9bd9353f2b993c0c287391cae505da2a78cb698b75418d2f5367e"],
         ["inline-key", "85649de18e63305548b6407e185f708483727ee6189cc4bc9512ddb17e23e776"],
+        // Each device signs in separately, so one account must not split by token.
+        ["console-token", consoleAccount],
+        ["other-device-token", consoleAccount],
       ]);
       for (const {
         consoleRow = consoleKey,
         active = 1,
         consoleStatus = 200,
+        rejected,
         inline = false,
         databaseFile,
         requested,
@@ -140,13 +167,28 @@ it.effect(
         { consoleStatus: 403, requested: ["console-key", "go-key"] },
         { consoleStatus: 500, requested: ["console-key"] },
         { active: 0, requested: ["go-key"] },
+        { consoleRow: consoleLogin, requested: ["console-token"] },
+        {
+          consoleRow: { ...consoleLogin, access: "other-device-token" },
+          requested: ["other-device-token"],
+        },
+        {
+          // Earlier OpenCode 2 releases signed in through this address.
+          consoleRow: {
+            ...consoleLogin,
+            metadata: { ...consoleLogin.metadata, server: "https://console.opencode.ai/" },
+          },
+          requested: ["console-token"],
+        },
+        {
+          consoleRow: consoleLogin,
+          rejected: "console-token",
+          requested: ["console-token", "go-key"],
+        },
         {
           consoleRow: {
-            type: "oauth",
-            methodID: "device",
-            access: "token",
-            refresh: "refresh",
-            expires: 0,
+            ...consoleLogin,
+            metadata: { ...consoleLogin.metadata, server: "https://console.example" },
           },
           requested: ["go-key"],
         },
@@ -201,7 +243,13 @@ it.effect(
               authorizations.push(key);
               // The legacy key is expired in the regression; it only works in fallback scenarios.
               const status =
-                key === "console-key" ? consoleStatus : requested.includes(key) ? 200 : 401;
+                key === rejected
+                  ? 401
+                  : key === "console-key"
+                    ? consoleStatus
+                    : requested.includes(key)
+                      ? 200
+                      : 401;
               return Effect.succeed(
                 HttpClientResponse.fromWeb(
                   request,
