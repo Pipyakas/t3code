@@ -3,6 +3,7 @@ import * as NodeSqlite from "node:sqlite";
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -178,6 +179,16 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
         id: "go_monthly",
         kind: "monthly",
         label: "Go · Monthly",
+        // The month runs from the subscription day to the same time a calendar month later,
+        // so its length is the month that ends at the reset.
+        windowDurationMins: Math.round(
+          Duration.toMinutes(
+            DateTime.distance(
+              DateTime.subtract(body.usage.monthly.resetsAt, { months: 1 }),
+              body.usage.monthly.resetsAt,
+            ),
+          ),
+        ),
         usedPercent: clampPercent(body.usage.monthly.percent),
         resetsAt: DateTime.formatIso(body.usage.monthly.resetsAt),
       },
