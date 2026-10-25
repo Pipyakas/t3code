@@ -40,6 +40,8 @@ const DEFAULT_VERSION_STDOUT = "opencode 1.14.19\n";
 it.effect("reads Go limits with the instance's XDG credentials and preserves reset times", () =>
   Effect.gen(function* () {
     const resetsAt = "2026-09-17T12:00:00.000Z";
+    // September has 30 days, so the Go month ending on 2 October is 30 days long.
+    const monthlyResetsAt = "2026-10-02T09:30:00.000Z";
     const limits = yield* readOpenCodeGoUsageLimits({
       enabled: true,
       serverUrl: "",
@@ -68,7 +70,7 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
                 usage: {
                   rolling: { percent: 0, resetsAt },
                   weekly: { percent: 10, resetsAt },
-                  monthly: { percent: 125, resetsAt },
+                  monthly: { percent: 125, resetsAt: monthlyResetsAt },
                 },
               }),
             ),
@@ -83,15 +85,21 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
       "aba48e85c981a8edc1c9fb4575121accc7235fa55d0f8689f66f153de5566a37",
     );
     NodeAssert.deepEqual(
-      limits.windows.map(({ kind, usedPercent, resetsAt: reset }) => ({
+      limits.windows.map(({ kind, usedPercent, resetsAt: reset, windowDurationMins }) => ({
         kind,
         usedPercent,
         reset,
+        windowDurationMins,
       })),
       [
-        { kind: "session", usedPercent: 0, reset: resetsAt },
-        { kind: "weekly", usedPercent: 10, reset: resetsAt },
-        { kind: "monthly", usedPercent: 100, reset: resetsAt },
+        { kind: "session", usedPercent: 0, reset: resetsAt, windowDurationMins: 5 * 60 },
+        { kind: "weekly", usedPercent: 10, reset: resetsAt, windowDurationMins: 7 * 24 * 60 },
+        {
+          kind: "monthly",
+          usedPercent: 100,
+          reset: monthlyResetsAt,
+          windowDurationMins: 30 * 24 * 60,
+        },
       ],
     );
   }),
