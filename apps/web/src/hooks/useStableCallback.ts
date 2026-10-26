@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useInsertionEffect, useRef, useState } from "react";
 
 /**
  * Only call it from event handlers and effects; during render it would see the
@@ -10,7 +10,9 @@ export function useStableCallback<Args extends ReadonlyArray<unknown>, Result>(
   fn: (...args: Args) => Result,
 ): (...args: Args) => Result {
   const latest = useRef(fn);
-  useLayoutEffect(() => {
+  // Insertion effects run before every layout effect in the commit, so a
+  // child's layout effect already calls this render's fn.
+  useInsertionEffect(() => {
     latest.current = fn;
   });
   const [stable] = useState(
