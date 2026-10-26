@@ -33,7 +33,10 @@ export function MiddleTruncate({
           <span className="shrink-0">{split.tail}</span>
         </>
       ) : (
-        <span className="min-w-0 truncate">{value}</span>
+        // Keyed so React does not reuse the head node and its imperative clip.
+        <span key="whole" className="min-w-0 truncate">
+          {value}
+        </span>
       )}
     </span>
   );
