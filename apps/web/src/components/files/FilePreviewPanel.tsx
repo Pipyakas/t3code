@@ -89,7 +89,7 @@ import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 import { AttachmentFilePreview } from "./AttachmentFilePreview";
 import { AudioPreview } from "./AudioPreview";
-import { BrowserDocumentFrame, isPdfPreviewFile } from "./BrowserDocumentFrame";
+import { BrowserDocumentFrame, isPdfPreviewFile, LiveFileDocument } from "./BrowserDocumentFrame";
 import { DelimitedTablePreview } from "./DelimitedTablePreview";
 import { PreviewImage } from "./PreviewImage";
 import FileBrowserPanel from "./FileBrowserPanel";
@@ -278,13 +278,22 @@ export function WorkspaceBrowserPreview(props: {
       </div>
     );
   }
-  return (
+  const src = `${assetUrl.url}${revisionSuffix}`;
+  const documentKey = `${props.environmentId}:${resource._tag}:${props.threadRef.threadId}:${props.absolutePath}`;
+  return pdf ? (
     <BrowserDocumentFrame
-      src={`${assetUrl.url}${revisionSuffix}`}
-      documentKey={`${props.environmentId}:${resource._tag}:${props.threadRef.threadId}:${props.absolutePath}:${revision}`}
-      documentId={`${props.environmentId}:${resource._tag}:${props.threadRef.threadId}:${props.absolutePath}`}
+      src={src}
+      documentKey={`${documentKey}:${revision}`}
+      documentId={documentKey}
       title={props.title}
-      pdf={pdf}
+      pdf
+    />
+  ) : (
+    <LiveFileDocument
+      key={documentKey}
+      src={src}
+      revision={props.workspaceMutationId}
+      title={props.title}
     />
   );
 }
