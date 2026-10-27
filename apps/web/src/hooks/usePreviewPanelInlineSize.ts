@@ -36,6 +36,9 @@ export function usePreviewPanelInlineSize(
     minWidth: PREVIEW_PANEL_MIN_WIDTH,
     maxWidth,
     edge: "left",
+    // A double-click on the handle splits the row evenly with the column beside the panel.
+    resetWidth: (host) =>
+      Math.round((options.container ?? host.parentElement ?? host).clientWidth / 2),
   });
   const observeRow = (host: HTMLElement) => {
     const row = container ?? (enabled ? host.parentElement : null) ?? null;
