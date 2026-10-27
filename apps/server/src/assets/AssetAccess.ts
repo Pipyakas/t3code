@@ -234,9 +234,16 @@ const optionOnNotFound = <A, R>(
   );
 
 export const readMcpAppHtml = Effect.fn("AssetAccess.readMcpAppHtml")(function* (filePath: string) {
-  const fileSystem = yield* FileSystem.FileSystem;
   // Allow space for stored CSP tags, but bound reads if the attachment grows after minting.
-  const limit = MCP_APP_MAX_HTML_BYTES + 128 * 1024;
+  return yield* readBoundedFile(filePath, MCP_APP_MAX_HTML_BYTES + 128 * 1024);
+});
+
+/** Reads a whole file into memory, or returns null when it is larger than `limit` bytes. */
+export const readBoundedFile = Effect.fn("AssetAccess.readBoundedFile")(function* (
+  filePath: string,
+  limit: number,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
   const chunks = yield* Stream.runCollect(fileSystem.stream(filePath, { bytesToRead: limit + 1 }));
   const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
   if (size > limit) return null;
