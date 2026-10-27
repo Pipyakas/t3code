@@ -22,6 +22,7 @@ import {
   injectMcpAppThemeBootstrap,
   MCP_APP_MAX_HTML_BYTES,
 } from "@t3tools/shared/mcpApp";
+import { injectPreviewScrollBootstrap } from "@t3tools/shared/previewScroll";
 import { ORCHESTRATION_PROTOCOL_HEADER } from "@t3tools/contracts";
 
 import * as ServerConfig from "./config.ts";
@@ -89,6 +90,43 @@ describe("MCP app asset responses", () => {
       yield* fs.writeFileString(file, "x".repeat(MCP_APP_MAX_HTML_BYTES + 128 * 1024 + 1));
       const response = yield* assetFileResponse({ path: file, renderIntent: "mcp-app" });
       expect(response.status).toBe(413);
+    }).pipe(Effect.provide(layerFileResponse)),
+  );
+});
+
+describe("workspace HTML preview responses", () => {
+  it.effect("adds the scroll script only for previews that ask for it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-preview-scroll-" });
+      const file = path.join(directory, "page.html");
+      const html = "<!doctype html><html><body>☃</body></html>";
+      yield* fs.writeFileString(file, html);
+      const restore = { x: 0, y: 1859 };
+
+      const preview = HttpServerResponse.toWeb(
+        yield* assetFileResponse({ path: file }, undefined, undefined, "GET", restore),
+      );
+      const expected = injectPreviewScrollBootstrap(html, restore);
+      expect(preview.headers.get("content-length")).toBe(
+        String(new TextEncoder().encode(expected).byteLength),
+      );
+      expect(yield* Effect.promise(() => preview.text())).toBe(expected);
+
+      const plain = HttpServerResponse.toWeb(yield* assetFileResponse({ path: file }));
+      expect(yield* Effect.promise(() => plain.text())).toBe(html);
+
+      const download = HttpServerResponse.toWeb(
+        yield* assetFileResponse(
+          { path: file, download: true },
+          undefined,
+          undefined,
+          "GET",
+          restore,
+        ),
+      );
+      expect(yield* Effect.promise(() => download.text())).toBe(html);
     }).pipe(Effect.provide(layerFileResponse)),
   );
 });
