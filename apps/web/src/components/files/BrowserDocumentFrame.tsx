@@ -18,6 +18,12 @@ import {
   readHtmlRenderLinkRequest,
 } from "@t3tools/shared/htmlRender";
 import {
+  formatPreviewScroll,
+  PREVIEW_SCROLL_PARAM,
+  type PreviewScroll,
+  readPreviewScrollMessage,
+} from "@t3tools/shared/previewScroll";
+import {
   isMacPlatform,
   matchesKeybindingShortcut,
   normalizeEventKey,
@@ -138,6 +144,98 @@ function FileDocument(props: { readonly src: string; readonly title: string }) {
   );
 }
 
+function previewScrollSrc(src: string, scroll: PreviewScroll | null): string {
+  const url = new URL(src, window.location.href);
+  url.searchParams.set(PREVIEW_SCROLL_PARAM, formatPreviewScroll(scroll));
+  return url.href;
+}
+
+/**
+ * A workspace file that reloads in place: each new revision loads in a hidden
+ * frame over the current one and replaces it once loaded, so an edit never
+ * blanks the preview. The server's scroll script reports where the reader is
+ * and restores it in the next frame; servers without it just reload at the top.
+ * Signed URL renewals alone never reload the page.
+ */
+export function LiveFileDocument(props: {
+  readonly src: string;
+  readonly revision: string | null;
+  readonly title: string;
+}) {
+  const [frames, setFrames] = useState(() => ({
+    shown: { id: 0, revision: props.revision, src: previewScrollSrc(props.src, null) },
+    pending: null as { id: number; revision: string | null; src: string } | null,
+  }));
+  const shownRef = useRef<HTMLIFrameElement>(null);
+  const scrollRef = useRef<PreviewScroll | null>(null);
+  const latestSrc = useRef(props.src);
+  useLayoutEffect(() => {
+    latestSrc.current = props.src;
+  }, [props.src]);
+  const { revision } = props;
+  useEffect(() => {
+    setFrames((current) => {
+      const target = current.pending ?? current.shown;
+      if (target.revision === revision) return current;
+      return {
+        shown: current.shown,
+        pending: {
+          id: target.id + 1,
+          revision,
+          src: previewScrollSrc(latestSrc.current, scrollRef.current),
+        },
+      };
+    });
+  }, [revision]);
+  useEffect(() => {
+    const record = (event: MessageEvent) => {
+      const scroll = readPreviewScrollMessage(event.data);
+      if (scroll !== undefined && event.source === shownRef.current?.contentWindow) {
+        scrollRef.current = scroll;
+      }
+    };
+    window.addEventListener("message", record);
+    return () => window.removeEventListener("message", record);
+  }, []);
+  const frameClassName = "absolute inset-0 size-full border-0 bg-white";
+  const sandbox = "allow-scripts allow-forms allow-popups allow-downloads";
+  return (
+    <div className="relative min-h-0 flex-1">
+      <iframe
+        key={frames.shown.id}
+        ref={shownRef}
+        src={frames.shown.src}
+        title={props.title}
+        className={frameClassName}
+        sandbox={sandbox}
+      />
+      {frames.pending ? (
+        <iframe
+          key={frames.pending.id}
+          src={frames.pending.src}
+          title={props.title}
+          aria-hidden
+          tabIndex={-1}
+          className={cn(frameClassName, "pointer-events-none opacity-0")}
+          sandbox={sandbox}
+          onLoad={() => {
+            const loadedId = frames.pending?.id;
+            setFrames((current) =>
+              current.pending === null || current.pending.id !== loadedId
+                ? current
+                : { shown: current.pending, pending: null },
+            );
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The first URL is kept for the frame's lifetime: signed asset URLs re-mint
+ * while it stays mounted, and a new src would reload the page.
+ */
 /** Keep the initial URL while mounted; re-signing must not reload the page. */
 export function HtmlRenderDocument(props: {
   readonly src: string;
