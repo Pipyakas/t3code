@@ -6,6 +6,12 @@ import {
 } from "@t3tools/contracts";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
 import { injectMcpAppCookieBootstrap, injectMcpAppThemeBootstrap } from "@t3tools/shared/mcpApp";
+import {
+  injectPreviewScrollBootstrap,
+  PREVIEW_SCROLL_PARAM,
+  type PreviewScroll,
+  readPreviewScrollParam,
+} from "@t3tools/shared/previewScroll";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
 import * as ByteSize from "effect/ByteSize";
 import * as Data from "effect/Data";
@@ -30,7 +36,12 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import { OtlpTracer, OtlpSerialization } from "effect/observability";
 
 import * as ServerConfig from "./config.ts";
-import { ASSET_ROUTE_PREFIX, readMcpAppHtml, resolveAsset } from "./assets/AssetAccess.ts";
+import {
+  ASSET_ROUTE_PREFIX,
+  readBoundedFile,
+  readMcpAppHtml,
+  resolveAsset,
+} from "./assets/AssetAccess.ts";
 import { sourceControlMediaResponse } from "./assets/sourceControlMediaResponse.ts";
 import { statMediaFile, streamMediaFile, type OpenMediaFile } from "./assets/MediaFile.ts";
 import {
@@ -62,6 +73,8 @@ const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inlin
 // Agent HTML can open without a click, so disallow blocking modals.
 const HTML_CONTENT_SECURITY_POLICY =
   "sandbox allow-scripts allow-forms allow-popups allow-downloads";
+// Larger pages are served as they are, so their preview reloads at the top.
+const PREVIEW_SCROLL_MAX_HTML_BYTES = 5 * 1024 * 1024;
 
 // Proxies may strip disposition; force document-capable downloads to octet-stream.
 const DOWNLOAD_MIME_TYPE_PATTERN = /^[\w!#$&^.+-]+\/[\w!#$&^.+-]+$/;
@@ -170,6 +183,8 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
   rangeHeader?: string,
   ifRangeHeader?: string,
   method: "GET" | "HEAD" = "GET",
+  /** Set when a file preview asks for its scroll script; null when it has no position to restore. */
+  previewScroll?: PreviewScroll | null,
 ) {
   const headers = assetResponseHeaders(asset.path, asset);
   if (
@@ -191,6 +206,23 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
     return method === "HEAD"
       ? HttpServerResponse.empty({ status: 200, headers })
       : HttpServerResponse.uint8Array(body, { headers });
+  }
+  if (
+    previewScroll !== undefined &&
+    asset.renderIntent === undefined &&
+    !asset.download &&
+    headers["Content-Type"] === "text/html; charset=utf-8"
+  ) {
+    const bytes = yield* readBoundedFile(asset.path, PREVIEW_SCROLL_MAX_HTML_BYTES);
+    if (bytes !== null) {
+      const body = new TextEncoder().encode(
+        injectPreviewScrollBootstrap(new TextDecoder().decode(bytes), previewScroll),
+      );
+      headers["Content-Length"] = String(body.byteLength);
+      return method === "HEAD"
+        ? HttpServerResponse.empty({ status: 200, headers })
+        : HttpServerResponse.uint8Array(body, { headers });
+    }
   }
   const mediaFile = asset.file;
   const mediaInfo = mediaFile ? yield* statMediaFile(asset.path, mediaFile) : undefined;
@@ -454,6 +486,9 @@ export const layerAssetRoute = HttpRouter.add(
       request.method === "GET" ? request.headers.range : undefined,
       request.headers["if-range"],
       request.method === "HEAD" ? "HEAD" : "GET",
+      url.value.searchParams.has(PREVIEW_SCROLL_PARAM)
+        ? readPreviewScrollParam(url.value.searchParams.get(PREVIEW_SCROLL_PARAM) ?? "")
+        : undefined,
     ).pipe(
       Effect.orElseSucceed(() => HttpServerResponse.text("Internal Server Error", { status: 500 })),
     );
