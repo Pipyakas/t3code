@@ -1,5 +1,10 @@
 import * as Schema from "effect/Schema";
-import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  useLayoutEffect,
+  useState,
+} from "react";
 
 import { getLocalStorageItem, setLocalStorageItem } from "./useLocalStorage";
 import { useResizeDrag } from "./useResizeDrag";
@@ -15,6 +20,8 @@ export interface UseResizableWidthOptions {
   readonly minWidth: number;
   readonly maxWidth: number;
   readonly edge: "left" | "right";
+  /** Width a double-click on the handle restores; `defaultWidth` when absent. */
+  readonly resetWidth?: ((host: HTMLElement) => number) | undefined;
 }
 
 export interface ResizableWidthHandlers {
@@ -24,6 +31,7 @@ export interface ResizableWidthHandlers {
   readonly onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void;
   readonly onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => void;
   readonly onLostPointerCapture: (event: ReactPointerEvent<HTMLElement>) => void;
+  readonly onDoubleClick: (event: ReactMouseEvent<HTMLElement>) => void;
 }
 
 /** Persist on drag end to avoid a storage write on every animation frame. */
@@ -31,7 +39,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   readonly width: number;
   readonly handlers: ResizableWidthHandlers;
 } {
-  const { storageKey, defaultWidth, minWidth, maxWidth, edge } = options;
+  const { storageKey, defaultWidth, minWidth, maxWidth, edge, resetWidth } = options;
 
   const clamp = (value: number): number => {
     if (!Number.isFinite(value)) return defaultWidth;
@@ -92,6 +100,17 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reapplies the live drag pointer position to the DOM before paint when the bounds change
   useLayoutEffect(() => refresh({ min: minWidth, max: maxWidth }), [refresh, minWidth, maxWidth]);
 
+  const onDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
+    const host = event.currentTarget.parentElement;
+    const nextWidth = clamp(host && resetWidth ? resetWidth(host) : defaultWidth);
+    setWidthState({ storageKey, width: nextWidth });
+    try {
+      setLocalStorageItem(storageKey, nextWidth, WidthSchema);
+    } catch (error) {
+      console.error("Could not persist panel width.", error);
+    }
+  };
+
   return {
     width: clampedWidth,
     handlers: {
@@ -101,6 +120,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
       onPointerUp: drag.onPointerUp,
       onPointerCancel: drag.onPointerCancel,
       onLostPointerCapture: drag.onLostPointerCapture,
+      onDoubleClick,
     },
   };
 }
