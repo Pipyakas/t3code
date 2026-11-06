@@ -331,6 +331,7 @@ export const make = Effect.gen(function* () {
           recoverRead(cli.listReactions(input), {
             reactions: [] as ReadonlyArray<PullRequestReaction>,
             reactionsByNoteId: new Map<string, ReadonlyArray<PullRequestReaction>>(),
+            editedAtByNoteId: new Map<string, string>(),
             botLogins: new Set<string>(),
           }),
         ],
@@ -338,6 +339,10 @@ export const make = Effect.gen(function* () {
       ).pipe(
         Effect.mapError(fail("getChangeRequestActivity")),
         Effect.map(([notes, commits, discussions, awards]): ProviderChangeRequestActivity => {
+          const edited = (id: string) => {
+            const editedAt = awards.editedAtByNoteId.get(id);
+            return editedAt === undefined ? {} : { editedAt };
+          };
           const botLogins = new Set([...awards.botLogins].map((login) => login.toLowerCase()));
           const withBotFlag = (author: PullRequestActor | null) =>
             author !== null && botLogins.has(author.login.toLowerCase())
@@ -347,6 +352,7 @@ export const make = Effect.gen(function* () {
             reactions: awards.reactions,
             comments: notes.comments.map((comment) => ({
               ...comment,
+              ...edited(comment.id),
               author: withBotFlag(comment.author),
               reactions: awards.reactionsByNoteId.get(comment.id) ?? [],
             })),
@@ -356,6 +362,7 @@ export const make = Effect.gen(function* () {
               ...thread,
               comments: thread.comments.map((comment) => ({
                 ...comment,
+                ...edited(comment.id),
                 author: withBotFlag(comment.author),
                 reactions: awards.reactionsByNoteId.get(comment.id) ?? [],
               })),
