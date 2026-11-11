@@ -196,29 +196,53 @@ export function claudeReportedModels(
     if (ids.some((id) => known.has(id))) continue;
     for (const id of ids) known.add(id);
     const efforts = info.supportsEffort ? (info.supportedEffortLevels ?? []) : [];
+    const defaultEffort = ["max", "xhigh", "high", "medium", "low"].find((level) =>
+      efforts.some((effort) => effort === level),
+    );
     models.push({
       slug,
       name: info.displayName.trim() || slug,
       isCustom: false,
       capabilities: {
-        optionDescriptors: efforts.length
-          ? [
-              {
-                id: "effort",
-                label: "Reasoning",
-                type: "select",
-                // `default` is not an effort, so choosing it sends none and Claude Code picks.
-                options: [
-                  { id: "default", label: "Default", isDefault: true },
-                  ...efforts.map((id) => ({ id, label: CLAUDE_EFFORT_LABELS[id] ?? id })),
-                ],
-              },
-            ]
-          : [],
+        optionDescriptors: [
+          ...(efforts.length
+            ? [
+                {
+                  id: "effort",
+                  label: "Reasoning",
+                  type: "select" as const,
+                  options: efforts.map((id) => ({
+                    id,
+                    label: CLAUDE_EFFORT_LABELS[id] ?? id,
+                    ...(id === defaultEffort ? { isDefault: true } : {}),
+                  })),
+                },
+              ]
+            : []),
+          ...(info.supportsFastMode
+            ? [{ id: "fastMode", label: "Fast Mode", type: "boolean" as const }]
+            : []),
+        ],
       },
     });
   }
   return models;
+}
+
+export function withClaudeReportedModels(
+  catalog: ClaudeModelCatalog,
+  customModels: ReadonlyArray<CustomModelSetting>,
+  reported: ReadonlyArray<ClaudeModelInfo> | undefined,
+): ClaudeModelCatalog {
+  const models = claudeReportedModels(catalog, customModels, reported);
+  return models.length
+    ? {
+        models: [
+          ...catalog.models,
+          ...models.map((model) => ({ model, runtime: {}, compatibility: {} })),
+        ],
+      }
+    : catalog;
 }
 
 function resolveClaudeCatalogModel(
