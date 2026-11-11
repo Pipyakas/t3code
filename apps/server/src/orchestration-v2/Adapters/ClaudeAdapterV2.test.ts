@@ -108,6 +108,7 @@ import {
   resolveClaudeModelCatalog,
   scopeClaudeModelCatalog,
   withClaudeCodeModelRoutes,
+  withClaudeReportedModels,
 } from "../../provider/ClaudeModelCatalog.ts";
 import {
   makeClaudeCodeModelRoutes,
@@ -716,6 +717,39 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
       permissionMode: "default",
       installPermissionCallback: true,
     });
+  });
+
+  it("sends the effort chosen for a model Claude Code reported", () => {
+    const modelSelection = {
+      ...CLAUDE_TEST_MODEL_SELECTION,
+      model: "anthropic/claude-gateway",
+      options: [{ id: "effort", value: "max" }],
+    };
+    const modelCatalog = withClaudeReportedModels(
+      BUNDLED_CLAUDE_MODEL_CATALOG,
+      [],
+      [
+        {
+          value: "anthropic/claude-gateway",
+          displayName: "Gateway Claude",
+          description: "",
+          supportsEffort: true,
+          supportedEffortLevels: ["low", "high", "max"],
+        },
+      ],
+    );
+    const base = { nativeThreadId: "gateway-thread", resume: false, cwd: "/workspace" };
+
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      ...base,
+      modelSelection,
+      modelCatalog,
+    });
+    assert.equal(options.model, "anthropic/claude-gateway");
+    assert.equal(options.effort, "max");
+    // Without the reported catalog the model is unknown, and an unknown model keeps the
+    // effort the user chose explicitly.
+    assert.equal(ClaudeAdapterV2.makeClaudeQueryOptions({ ...base, modelSelection }).effort, "max");
   });
 });
 
