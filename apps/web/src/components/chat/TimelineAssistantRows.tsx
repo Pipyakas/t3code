@@ -54,6 +54,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
           >
             <ChatMarkdown
               text={messageText}
+              renderInsights
               cwd={ctx.markdownCwd}
               agentDirectories={() =>
                 ctx.threadRef && row.projectedItem
