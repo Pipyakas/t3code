@@ -100,6 +100,7 @@ import {
   BUNDLED_CLAUDE_MODEL_CATALOG,
   type ClaudeModelCatalog,
   scopeClaudeModelCatalog,
+  withClaudeReportedModels,
 } from "../../provider/ClaudeModelCatalog.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -584,6 +585,39 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
       permissionMode: "default",
       installPermissionCallback: true,
     });
+  });
+
+  it("sends the effort chosen for a model Claude Code reported", () => {
+    const modelSelection = {
+      ...CLAUDE_TEST_MODEL_SELECTION,
+      model: "anthropic/claude-gateway",
+      options: [{ id: "effort", value: "max" }],
+    };
+    const modelCatalog = withClaudeReportedModels(
+      BUNDLED_CLAUDE_MODEL_CATALOG,
+      [],
+      [
+        {
+          value: "anthropic/claude-gateway",
+          displayName: "Gateway Claude",
+          description: "",
+          supportsEffort: true,
+          supportedEffortLevels: ["low", "high", "max"],
+        },
+      ],
+    );
+    const base = { nativeThreadId: "gateway-thread", resume: false, cwd: "/workspace" };
+
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      ...base,
+      modelSelection,
+      modelCatalog,
+    });
+    assert.equal(options.model, "anthropic/claude-gateway");
+    assert.equal(options.effort, "max");
+    // Without the reported catalog the model is unknown, and an unknown model keeps the
+    // effort the user chose explicitly.
+    assert.equal(ClaudeAdapterV2.makeClaudeQueryOptions({ ...base, modelSelection }).effort, "max");
   });
 });
 
@@ -11513,101 +11547,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
   it.effect.each(["api_error", "overloaded_status"] as const)(
     "fails a success-shaped Claude result with %s",
     (terminalReason) =>
-      Effect.gen(function* () {
-        const harness = yield* makeWakeHarness;
-        const now = yield* DateTime.now;
-        yield* harness.runtime.startTurn(
-          makeClaudeTestTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            now,
-            attemptId: RunAttemptId.make("attempt-claude-api-retry"),
-            text: "Open github.com.",
-            attachments: [],
-          }),
-        );
-
-        yield* Queue.offer(
-          harness.sdkMessages,
-          claudeSdkFrame({
-            type: "system",
-            subtype: "api_retry",
-            attempt: 2,
-            max_retries: 10,
-            retry_delay_ms: 1_500,
-            error_status: 529,
-            error: "overloaded",
-            uuid: "00000000-0000-4000-8000-000000000201",
-            session_id: WAKE_NATIVE_SESSION,
-          }),
-        );
-        const retryItems = () =>
-          harness.events.flatMap((event) =>
-            event.type === "turn_item.updated" &&
-            event.turnItem.type === "error" &&
-            event.turnItem.retry !== undefined
-              ? [event.turnItem]
-              : [],
-          );
-        yield* harness.until(() => retryItems().length === 1);
-        const runningRetry = retryItems()[0];
-        assert.equal(runningRetry?.status, "running");
-        assert.equal(runningRetry?.failure.code, "api_error_529");
-        assert.deepEqual(runningRetry?.retry, {
-          attempt: 2,
-          maxAttempts: 10,
-          retryDelayMs: 1_500,
-        });
-
-        // The stream starting again settles the retry before any assistant message completes.
-        yield* Queue.offer(
-          harness.sdkMessages,
-          claudeSdkFrame({
-            type: "stream_event",
-            event: { type: "message_start", message: { id: "api-retry-recovered-message" } },
-            parent_tool_use_id: null,
-            session_id: WAKE_NATIVE_SESSION,
-            uuid: "00000000-0000-4000-8000-000000000204",
-          }),
-        );
-        yield* harness.until(() => retryItems().length === 2);
-        assert.lengthOf(harness.terminalEvents(), 0);
-        const recoveredRetry = retryItems()[1];
-        assert.equal(recoveredRetry?.id, runningRetry?.id);
-        assert.equal(recoveredRetry?.status, "completed");
-        assert.equal(recoveredRetry?.title, "Provider recovered");
-        yield* Queue.offer(
-          harness.sdkMessages,
-          makeAssistantTextFrame({
-            uuid: "00000000-0000-4000-8000-000000000202",
-            text: "Opening GitHub.",
-          }),
-        );
-
-        yield* Queue.offer(
-          harness.sdkMessages,
-          makeResultFrame({
-            uuid: "00000000-0000-4000-8000-000000000203",
-            result: "Opened GitHub.",
-          }),
-        );
-        yield* harness.awaitTerminal(1);
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            NodeServices.layer,
-            NodeCrypto.layer,
-          ),
-        ),
-      ),
-    ),
-  );
-
-  it.effect.each(["api_error", "overloaded_status"] as const)(
-    "fails a success-shaped Claude result with %s",
-    (terminalReason) =>
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeWakeHarness;
@@ -17742,11 +17681,16 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           yield* Queue.offer(harness.sdkMessages, frame);
         }
         yield* harness.awaitContinuation(1);
+        yield* harness.until(() =>
+          harness.events.some(
+            (event) =>
+              event.type === "subagent.updated" &&
               event.subagent.nativeTaskRef?.nativeId === OUTER_TASK_ID &&
               event.subagent.status === "completed",
           ),
         );
-        yield* yieldTicks(50);        yield* harness.runtime.startTurn(
+        yield* yieldTicks(50);
+        yield* harness.runtime.startTurn(
           makeClaudeTestTurnInput({
             threadId: harness.threadId,
             providerThread: harness.providerThread,
@@ -19593,29 +19537,144 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         }
         yield* Queue.take(harness.terminalReceipts);
 
-      const selections = Object.fromEntries(
-        harness.events.flatMap((event) =>
-          event.type === "subagent.updated"
-            ? [[event.subagent.nativeTaskRef?.nativeId, event.subagent.modelSelection] as const]
+        const efforts = new Map(
+          harness.events.flatMap((event) =>
+            event.type === "subagent.updated"
+              ? [
+                  [
+                    event.subagent.nativeTaskRef?.nativeId,
+                    getModelSelectionStringOptionValue(event.subagent.modelSelection, "effort"),
+                  ] as const,
+                ]
+              : [],
+          ),
+        );
+        assert.deepEqual(Object.fromEntries(efforts), {
+          [`task-${OUTER_TOOL_USE_ID}`]: "low",
+          [`task-${UNSPECIFIED_TOOL_USE_ID}`]: undefined,
+          [`task-${OVERRIDING_TOOL_USE_ID}`]: "max",
+        });
+        const childEfforts = harness.events.flatMap((event) =>
+          event.type === "app_thread.created" && event.appThread.id !== harness.threadId
+            ? [getModelSelectionStringOptionValue(event.appThread.modelSelection, "effort")]
             : [],
+        );
+        assert.deepEqual(childEfforts, ["low", undefined, "max"]);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
         ),
-      );
-      const instanceId = CLAUDE_TEST_MODEL_SELECTION.instanceId;
-      assert.deepEqual(selections, {
-        [`task-${TUNED_TOOL_USE_ID}`]: {
-          instanceId,
-          model: "claude-custom-tuned",
-          options: [{ id: "effort", value: "brutal" }],
+      ),
+    ),
+  );
+
+  it.effect.each([
+    {
+      label: "extracts text from direct content-block subagent results",
+      content: [
+        { type: "text", text: "First line." },
+        { type: "text", text: "Second line." },
+      ],
+      expected: "First line.\nSecond line.",
+    },
+    {
+      label: "drops Claude Code's tools-used note from a subagent result",
+      content: [
+        {
+          type: "text",
+          text: "<tools-used-before-summary>Read</tools-used-before-summary>\n\nadd (line 1)\nmean (line 6)",
         },
-        [`task-${SHADOW_TOOL_USE_ID}`]: { instanceId, model: "opus" },
-      });
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          IdAllocator.layer,
-          McpProviderSessions.layer,
-          NodeServices.layer,
-          NodeCrypto.layer,
+      ],
+      expected: "add (line 1)\nmean (line 6)",
+    },
+  ])("$label", ({ content, expected }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const SUBAGENT_TASK_ID = "task-direct-content-blocks";
+        const SUBAGENT_TOOL_USE_ID = "toolu-direct-content-blocks";
+        const harness = yield* makeWakeHarness;
+        const now = yield* DateTime.now;
+        const subagentEvents = () =>
+          harness.events.filter(
+            (
+              event,
+            ): event is Extract<
+              ProviderAdapter.ProviderAdapterV2Event,
+              { type: "subagent.updated" }
+            > => event.type === "subagent.updated",
+          );
+
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-direct-content-blocks"),
+            text: "Delegate this task.",
+            attachments: [],
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "system",
+            subtype: "task_started",
+            task_id: SUBAGENT_TASK_ID,
+            tool_use_id: SUBAGENT_TOOL_USE_ID,
+            description: "Delegated task",
+            subagent_type: "general-purpose",
+            task_type: "local_agent",
+            prompt: "Return the result.",
+            uuid: "00000000-0000-4000-8000-000000000206",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* harness.until(() => subagentEvents().length === 1);
+
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: SUBAGENT_TOOL_USE_ID,
+                  content,
+                },
+              ],
+            },
+            parent_tool_use_id: null,
+            uuid: "00000000-0000-4000-8000-000000000207",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* harness.until(() => subagentEvents().at(-1)?.subagent.status === "completed");
+
+        assert.equal(subagentEvents().at(-1)?.subagent.result, expected);
+
+        yield* Queue.offer(
+          harness.sdkMessages,
+          makeResultFrame({
+            uuid: "00000000-0000-4000-8000-000000000208",
+            result: "Delegation completed.",
+          }),
+        );
+        yield* harness.awaitTerminal(1);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
         ),
       ),
     ),
