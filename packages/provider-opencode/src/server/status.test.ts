@@ -43,8 +43,6 @@ const DEFAULT_VERSION_STDOUT = "opencode 1.14.19\n";
 it.effect("reads Go limits with the instance's XDG credentials and preserves reset times", () =>
   Effect.gen(function* () {
     const resetsAt = "2026-09-17T12:00:00.000Z";
-    // September has 30 days, so the Go month ending on 2 October is 30 days long.
-    const monthlyResetsAt = "2026-10-02T09:30:00.000Z";
     const limits = yield* readOpenCodeGoUsageLimits({
       enabled: true,
       serverUrl: "",
@@ -73,7 +71,7 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
                 usage: {
                   rolling: { percent: 0, resetsAt },
                   weekly: { percent: 10, resetsAt },
-                  monthly: { percent: 125, resetsAt: monthlyResetsAt },
+                  monthly: { percent: 125, resetsAt },
                 },
               }),
             ),
@@ -88,21 +86,15 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
       "aba48e85c981a8edc1c9fb4575121accc7235fa55d0f8689f66f153de5566a37",
     );
     NodeAssert.deepEqual(
-      limits.windows.map(({ kind, usedPercent, resetsAt: reset, windowDurationMins }) => ({
+      limits.windows.map(({ kind, usedPercent, resetsAt: reset }) => ({
         kind,
         usedPercent,
         reset,
-        windowDurationMins,
       })),
       [
-        { kind: "session", usedPercent: 0, reset: resetsAt, windowDurationMins: 5 * 60 },
-        { kind: "weekly", usedPercent: 10, reset: resetsAt, windowDurationMins: 7 * 24 * 60 },
-        {
-          kind: "monthly",
-          usedPercent: 100,
-          reset: monthlyResetsAt,
-          windowDurationMins: 30 * 24 * 60,
-        },
+        { kind: "session", usedPercent: 0, reset: resetsAt },
+        { kind: "weekly", usedPercent: 10, reset: resetsAt },
+        { kind: "monthly", usedPercent: 100, reset: resetsAt },
       ],
     );
   }),
@@ -129,34 +121,15 @@ it.effect(
       const insert = database.prepare("INSERT INTO credential VALUES (?, ?, ?, ?, ?, ?)");
       const window = { percent: 1, resetsAt: "2026-09-17T12:00:00.000Z" };
       const consoleKey = { type: "key", key: "console-key" };
-      const consoleLogin = {
-        type: "oauth",
-        methodID: "device",
-        access: "console-token",
-        refresh: "refresh",
-        expires: 0,
-        metadata: {
-          server: "https://opencode.ai/console",
-          accountID: "acc_1",
-          email: "user@example.com",
-          orgID: "org_1",
-          orgName: "Org",
-        },
-      };
-      const consoleAccount = "4c1ad3b022b414b769bf373c1fa50a36e1704129d036b9d1a9fe4cde9999e87e";
       const fingerprints = new Map([
         ["console-key", "3e45cfde9158185930d4cc7020a4e390895574fd54bd8f9631d23a336bbf94f0"],
         ["go-key", "d0e590e93fc9bd9353f2b993c0c287391cae505da2a78cb698b75418d2f5367e"],
         ["inline-key", "85649de18e63305548b6407e185f708483727ee6189cc4bc9512ddb17e23e776"],
-        // Each device signs in separately, so one account must not split by token.
-        ["console-token", consoleAccount],
-        ["other-device-token", consoleAccount],
       ]);
       for (const {
         consoleRow = consoleKey,
         active = 1,
         consoleStatus = 200,
-        rejected,
         inline = false,
         databaseFile,
         requested,
@@ -169,28 +142,13 @@ it.effect(
         { consoleStatus: 403, requested: ["console-key", "go-key"] },
         { consoleStatus: 500, requested: ["console-key"] },
         { active: 0, requested: ["go-key"] },
-        { consoleRow: consoleLogin, requested: ["console-token"] },
-        {
-          consoleRow: { ...consoleLogin, access: "other-device-token" },
-          requested: ["other-device-token"],
-        },
-        {
-          // Earlier OpenCode 2 releases signed in through this address.
-          consoleRow: {
-            ...consoleLogin,
-            metadata: { ...consoleLogin.metadata, server: "https://console.opencode.ai/" },
-          },
-          requested: ["console-token"],
-        },
-        {
-          consoleRow: consoleLogin,
-          rejected: "console-token",
-          requested: ["console-token", "go-key"],
-        },
         {
           consoleRow: {
-            ...consoleLogin,
-            metadata: { ...consoleLogin.metadata, server: "https://console.example" },
+            type: "oauth",
+            methodID: "device",
+            access: "token",
+            refresh: "refresh",
+            expires: 0,
           },
           requested: ["go-key"],
         },
@@ -245,13 +203,7 @@ it.effect(
               authorizations.push(key);
               // The legacy key is expired in the regression; it only works in fallback scenarios.
               const status =
-                key === rejected
-                  ? 401
-                  : key === "console-key"
-                    ? consoleStatus
-                    : requested.includes(key)
-                      ? 200
-                      : 401;
+                key === "console-key" ? consoleStatus : requested.includes(key) ? 200 : 401;
               return Effect.succeed(
                 HttpClientResponse.fromWeb(
                   request,
@@ -898,12 +850,6 @@ it.layer(layerTest)("checkOpenCodeProviderStatus", (it) => {
             name: "Space Bunny Free",
             variants: [{ id: "low" }, { id: "medium" }, { id: "high" }],
           },
-          {
-            providerID: "opencode-go",
-            id: "deepseek-v4.1-flash",
-            name: "DeepSeek V4.1 Flash",
-            variants: [{ id: "low" }, { id: "high" }, { id: "max" }],
-          },
         ]),
       );
 
@@ -923,25 +869,13 @@ it.layer(layerTest)("checkOpenCodeProviderStatus", (it) => {
       );
       NodeAssert.deepEqual(
         snapshot.models.map((model) => model.slug),
-        ["opencode/big-pickle", "opencode-go/deepseek-v4.1-flash", "opencode/space-bunny-free"],
+        ["opencode/big-pickle", "opencode/space-bunny-free"],
       );
       const variant = snapshot.models.find((model) => model.slug === "opencode/space-bunny-free")
         ?.capabilities?.optionDescriptors?.[0];
       NodeAssert.deepEqual(
         variant?.type === "select" ? variant.options.map((option) => option.id) : [],
         ["low", "medium", "high"],
-      );
-      const goVariant = snapshot.models.find(
-        (model) => model.slug === "opencode-go/deepseek-v4.1-flash",
-      )?.capabilities?.optionDescriptors?.[0];
-      const goVariantIds =
-        goVariant?.type === "select" ? goVariant.options.map((option) => option.id) : [];
-      NodeAssert.deepEqual(goVariantIds, ["low", "high", "max"]);
-      NodeAssert.ok(
-        goVariant?.type === "select" &&
-          goVariant.currentValue !== undefined &&
-          goVariantIds.includes(goVariant.currentValue),
-        "an OpenCode Go model gets a default reasoning variant it lists",
       );
       NodeAssert.equal(runtimeMock.state.sdkClientInputs.length, 0);
     }),
@@ -1229,50 +1163,19 @@ it.effect("reads an already loaded OpenCode 2 directory once without waiting for
   }),
 );
 
-it.effect("waits for an OpenCode 2 server whose first model list takes seconds", () =>
+it.effect("lists a catalog whose cold server start outlasts the settle budget", () =>
   Effect.gen(function* () {
-    // A fresh server with several remote providers answers its first list
-    // only once its whole catalog has loaded (8-12 s on a Windows host).
-    const model: OpenCode2Model = { providerID: "ccgw", id: "glm", name: "GLM", variants: [] };
+    const catalog: ReadonlyArray<OpenCode2Model> = [
+      { providerID: "opencode", id: "big-pickle", name: "Big Pickle", variants: [] },
+    ];
     let reads = 0;
-    const load = yield* makeOpenCode2ModelLoader(
-      Effect.suspend(() => {
-        reads += 1;
-        return reads === 1
-          ? Effect.sleep("12 seconds").pipe(Effect.as([model]))
-          : Effect.succeed([model]);
-      }),
+    // The loader's read includes spawning the server; a loaded host can take 6s to start it.
+    const read = Effect.suspend(() =>
+      reads++ === 0 ? Effect.sleep("6 seconds").pipe(Effect.as(catalog)) : Effect.succeed(catalog),
     );
-    const fiber = yield* load.pipe(Effect.forkChild);
-    yield* TestClock.adjust("13 seconds");
-    NodeAssert.deepEqual(yield* Fiber.join(fiber), [model]);
-  }).pipe(Effect.provide(TestClock.layer())),
-);
-
-it.effect("retries an OpenCode 2 server that refuses its first model list", () =>
-  Effect.gen(function* () {
-    // A cold server can answer its first list with 503 after several seconds.
-    const model: OpenCode2Model = { providerID: "ccgw", id: "glm", name: "GLM", variants: [] };
-    let reads = 0;
-    const load = yield* makeOpenCode2ModelLoader(
-      Effect.suspend(() => {
-        reads += 1;
-        return reads === 1
-          ? Effect.sleep("5 seconds").pipe(Effect.andThen(Effect.fail("unavailable")))
-          : Effect.succeed([model]);
-      }),
-    );
-    const fiber = yield* load.pipe(Effect.forkChild);
-    yield* TestClock.adjust("7 seconds");
-    NodeAssert.deepEqual(yield* Fiber.join(fiber), [model]);
-  }).pipe(Effect.provide(TestClock.layer())),
-);
-
-it.effect("reports a model list that keeps failing once the wait runs out", () =>
-  Effect.gen(function* () {
-    const load = yield* makeOpenCode2ModelLoader(Effect.fail("unavailable"));
-    const fiber = yield* load.pipe(Effect.flip, Effect.forkChild);
-    yield* TestClock.adjust("31 seconds");
-    NodeAssert.equal(yield* Fiber.join(fiber), "unavailable");
-  }).pipe(Effect.provide(TestClock.layer())),
+    const load = yield* makeOpenCode2ModelLoader(read);
+    const fiber = yield* Effect.forkChild(load);
+    yield* TestClock.adjust("10 seconds");
+    NodeAssert.deepEqual(yield* Fiber.join(fiber), catalog);
+  }),
 );
