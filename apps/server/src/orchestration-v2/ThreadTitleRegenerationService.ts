@@ -14,7 +14,6 @@ import {
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import type * as DateTime from "effect/DateTime";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -25,7 +24,6 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { OrchestratorV2Error } from "./Orchestrator.ts";
 import * as ProjectStore from "./ProjectStore.ts";
-import { forkInheritedRunOrdinals, ProjectionStoreThreadNotFoundError } from "./ProjectionStore.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 
 import { formatThreadTitleContext } from "@t3tools/provider-core/server/threadTitleContext";
@@ -57,7 +55,6 @@ type Outcome =
 
 const MAX_FAILURE_MESSAGE_LENGTH = 300;
 const isTextGenerationError = Schema.is(TextGenerationError);
-const isProjectionStoreThreadNotFoundError = Schema.is(ProjectionStoreThreadNotFoundError);
 
 function failureMessage(cause: Cause.Cause<unknown>): string {
   const error = Cause.squash(cause);
@@ -106,13 +103,16 @@ const make = Effect.gen(function* () {
       .pipe(Effect.asVoid);
 
   const messagesThroughRun = Effect.fn("ThreadTitleRegenerationService.messagesThroughRun")(
-    function* (threadId: ThreadId, runId: RunId, forkCreatedAt: DateTime.Utc) {
+    function* (threadId: ThreadId, runId: RunId) {
       const source = yield* threads.getThreadRecords(threadId, ["messages", "runs"], {
         messageRoles: ["user", "assistant"],
       });
-      const ordinals = forkInheritedRunOrdinals(source.runs, forkCreatedAt);
-      const forkOrdinal = ordinals.get(runId);
-      if (forkOrdinal === undefined) return undefined;
+      const ordinals = new Map(
+        source.runs
+          .filter((run) => run.status !== "rolled_back")
+          .map((run) => [run.id, run.ordinal]),
+      );
+      const forkOrdinal = ordinals.get(runId) ?? -1;
       const messages = source.messages.filter((message) => {
         if (message.streaming) return false;
         if (message.runId === null) return source.thread.historyOrigin === "v1_import";
@@ -128,20 +128,12 @@ const make = Effect.gen(function* () {
   ) {
     let title: string | undefined;
     const history: Array<ReadonlyArray<OrchestrationV2ConversationMessage>> = [];
-    const seen = new Set([thread.id]);
-    let current = thread;
-    while (
-      current.forkedFrom?.type === "run" &&
-      current.lineage.sideChat !== true &&
-      !seen.has(current.forkedFrom.threadId)
-    ) {
-      const { threadId, runId } = current.forkedFrom;
-      seen.add(threadId);
-      const source = yield* messagesThroughRun(threadId, runId, current.createdAt);
-      if (source === undefined) break;
+    let forkedFrom = thread.forkedFrom;
+    while (forkedFrom?.type === "run") {
+      const source = yield* messagesThroughRun(forkedFrom.threadId, forkedFrom.runId);
       history.push(source.messages);
       title ??= source.thread.title;
-      current = source.thread;
+      forkedFrom = source.thread.forkedFrom;
     }
     const context = formatThreadTitleContext(history.reverse().flat());
     return title === undefined || context.message.length === 0
@@ -190,25 +182,17 @@ const make = Effect.gen(function* () {
           projection.messages.filter((message) => !message.streaming),
         );
       }
-      // A deleted source should not cost the fork its title.
-      const inherited = yield* forkSource(projection.thread).pipe(
-        Effect.catchTags({
-          OrchestratorProjectionError: (error) =>
-            isProjectionStoreThreadNotFoundError(error.cause)
-              ? Effect.undefined
-              : Effect.fail(error),
-        }),
-      );
-      if (
-        context.message.length === 0 &&
-        context.attachments.length === 0 &&
-        inherited === undefined
-      ) {
+      if (context.message.length === 0 && context.attachments.length === 0) {
         return {
           status: "failed" as const,
           message: "This thread has no messages to title yet.",
         };
       }
+
+      // A deleted source should not cost the fork its title.
+      const inherited = yield* forkSource(projection.thread).pipe(
+        Effect.orElseSucceed(() => undefined),
+      );
       const settings = resolveProjectSettings(
         yield* serverSettings.getSettings,
         projection.thread.projectId,
