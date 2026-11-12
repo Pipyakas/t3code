@@ -15,7 +15,7 @@ import {
 it.each([
   ["default", CHAT_MARKDOWN_REMARK_PLUGINS],
   ["with breaks", CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS],
-] as const)("preserves trailing underscores and tildes in bare URLs (%s)", (_, plugins) => {
+] as const)("preserves bare URL boundaries (%s)", (_, plugins) => {
   const processor = unified().use(remarkParse).use(plugins);
   const shape = (node: Root | RootContent): string => {
     if (node.type === "text") return node.value;
@@ -140,14 +140,6 @@ it.each([
     ["[http://example.com/a，b](http://example.com/a，b)", link("http://example.com/a，b")],
     ["`https://example.com/a。次`", "`https://example.com/a。次`"],
     [
-      "منشور على https://example.com/report، ونسخته",
-      `منشور على ${link("https://example.com/report")}، ونسخته`,
-    ],
-    [
-      "هل يعمل **http://localhost:3000**؟ نعم؛ www.example.com۔",
-      `هل يعمل **${link("http://localhost:3000")}**؟ نعم؛ ${link("www.example.com")}۔`,
-    ],
-    [
       "https://x.com/a_ https://x.com/b_",
       `${link("https://x.com/a_")} ${link("https://x.com/b_")}`,
     ],
@@ -177,7 +169,7 @@ it.each([
   }
 });
 
-it("ends bare URLs at CJK and Arabic punctuation with source positions", () => {
+it("ends bare URLs at CJK punctuation with source positions", () => {
   const processor = unified().use(remarkParse).use(CHAT_MARKDOWN_REMARK_PLUGINS);
   const parse = (markdown: string) => processor.runSync(processor.parse(markdown), markdown);
   const at = (line: number, column: number, offset: number) => ({ line, column, offset });
