@@ -446,12 +446,14 @@ it.live("retries a failed selection restart session open before completing", () 
   ),
 );
 
-it.live("a workspace handoff during a run does not leave the run interrupted", () =>
-  Effect.scoped(
+// regression: #22971 an exclusive session closes on detach; that failed the run and held the queue
+it.live.each(["pooled", "exclusive"] as const)(
+  "a workspace handoff on a %s session completes its run and starts the queued continuation",
+  (mode) =>
     Effect.gen(function* () {
-      const cwd = yield* checkpointWorkspace("workspace-handoff-lifecycle");
-      const handoffCwd = yield* checkpointWorkspace("workspace-handoff-lifecycle-target");
-      const threadId = ThreadId.make("thread:workspace-handoff-lifecycle");
+      const cwd = yield* checkpointWorkspace(`workspace-handoff-${mode}`);
+      const handoffCwd = yield* checkpointWorkspace(`workspace-handoff-${mode}-target`);
+      const threadId = ThreadId.make(`thread:workspace-handoff:${mode}`);
       const state = yield* Ref.make<RestartAdapterState>({
         activeTurn: null,
         opened: [],
@@ -459,7 +461,25 @@ it.live("a workspace handoff during a run does not leave the run interrupted", (
         closedSessionCount: 0,
         failedReplacementOpen: false,
       });
-      const layerRegistry = ProviderAdapterRegistry.layerSingle(makeRestartAdapter(state));
+      const base = makeRestartAdapter(
+        state,
+        mode === "pooled" ? pooledCapabilities : exclusiveCapabilities,
+      );
+      // A session that closes on detach is never asked to interrupt: Claude's cannot answer.
+      const adapter: ProviderAdapter.ProviderAdapterV2["Service"] =
+        mode === "pooled"
+          ? base
+          : {
+              ...base,
+              openSession: (input) =>
+                base.openSession(input).pipe(
+                  Effect.map((session) => ({
+                    ...session,
+                    interruptTurn: () => Effect.die("an exclusive handoff must not interrupt"),
+                  })),
+                ),
+            };
+      const layerRegistry = ProviderAdapterRegistry.layerSingle(adapter);
 
       const projection = yield* Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -529,20 +549,31 @@ it.live("a workspace handoff during a run does not leave the run interrupted", (
             Effect.forkScoped,
           );
         // What t3_worktree_handoff dispatches while the calling turn is still running.
-        yield* orchestrator.dispatch({
+        const bound = yield* orchestrator.dispatch({
           type: "thread.metadata.update",
           commandId: CommandId.make("command:workspace-handoff:rebind"),
           threadId,
           branch: "repro-handoff",
           worktreePath: handoffCwd,
+          continuation: {
+            messageId: MessageId.make("message:workspace-handoff:continuation"),
+            text: "continue in the worktree",
+          },
         });
+        // The detach can settle the run at once, so its follow-up must exist in the same commit.
+        assert.deepEqual(
+          bound.storedEvents.flatMap(({ event }) =>
+            event.type === "run.created" ? [event.payload.status] : [],
+          ),
+          ["queued"],
+        );
         yield* Fiber.join(settled);
         yield* worker.drain();
         return yield* orchestrator.getThreadProjection(threadId);
       }).pipe(
         Effect.provide(
           ProviderReplayHarness.layerWithRegistry(
-            { name: "workspace-handoff-lifecycle" },
+            { name: `workspace-handoff-${mode}` },
             layerRegistry,
           ),
         ),
@@ -552,11 +583,16 @@ it.live("a workspace handoff during a run does not leave the run interrupted", (
       assert.equal(projection.runs[0]?.status, "completed");
       assert.isNotNull(projection.runs[0]?.checkpointId ?? null);
       assert.isFalse(
-        projection.turnItems.some((item) => item.type === "run_interrupt_result"),
-        "an intentional workspace handoff must not project an interrupt result",
+        projection.turnItems.some(
+          (item) => item.type === "run_interrupt_result" || item.type === "error",
+        ),
+        "an intentional workspace handoff must not project an interrupt result or a failure",
+      );
+      assert.deepEqual(
+        (yield* Ref.get(state)).started.map((turn) => turn.cwd),
+        [cwd, handoffCwd],
       );
     }),
-  ),
 );
 
 it.live("Stop during a restart interrupts the turn the restart could not stop", () =>
