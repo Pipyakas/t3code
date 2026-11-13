@@ -616,6 +616,7 @@ describe("PreviewManager", () => {
                 detach: () => {},
                 setShown: () => {},
                 humanStartedDownload: () => true,
+                agentLedPage: () => false,
                 placeDownload: () => true,
               }),
               Layer.mock(PreviewPasskeys.PreviewPasskeys)({
@@ -1984,6 +1985,162 @@ describe("PreviewManager", () => {
         screenshot.resolve({ data: "" });
         expect(yield* Queue.take(capturing)).toBe(false);
       }).pipe(Effect.provide(managerLayer()), Effect.scoped),
+  );
+
+  effectIt.effect(
+    "opens a new-tab link in the background only when the agent's input led to it",
+    () =>
+      Effect.gen(function* () {
+        const host = yield* DesktopBrowserHost.DesktopBrowserHost;
+        const serverTab = { threadId: "thread-1", tabId: "server-tab-1" };
+        const contents = Object.assign(
+          makeTestPreviewWebContents(async () => {
+            throw new Error("unused");
+          }, 42),
+          {
+            isDevToolsOpened: () => false,
+            getUserAgent: () => "Electron",
+            focusedFrame: null,
+          },
+        );
+        fromId.mockReturnValue(contents);
+        const manager = yield* PreviewManager.PreviewManager;
+        const openLinks = yield* Queue.unbounded<boolean>();
+        yield* manager.subscribeOpenLinks(({ background }) =>
+          Queue.offer(openLinks, background).pipe(Effect.asVoid),
+        );
+        const attached = yield* Deferred.make<void>();
+        yield* host.events.pipe(
+          Stream.runForEach((line) =>
+            new TextDecoder().decode(line).includes('"type":"attached"')
+              ? Deferred.succeed(attached, undefined)
+              : Effect.void,
+          ),
+          Effect.forkScoped,
+        );
+        yield* manager.createTab("tab_1", { serverTab });
+        yield* manager.registerWebview("tab_1", 42);
+        yield* Deferred.await(attached);
+        const openWindow = vi.mocked(contents.setWindowOpenHandler).mock.calls[0]![0];
+        const openBlankLink = Effect.suspend(() => {
+          openWindow({
+            url: "https://example.com/next",
+            disposition: "foreground-tab",
+          } as Electron.HandlerDetails);
+          return Queue.take(openLinks);
+        });
+
+        expect(yield* openBlankLink).toBe(false);
+
+        yield* host.handleCommandLine(
+          JSON.stringify({
+            type: "cdp",
+            ...serverTab,
+            message: JSON.stringify({
+              id: 1,
+              method: "Runtime.evaluate",
+              params: { expression: "document.querySelector('a').click()" },
+              sessionId: "t3-preview-page",
+            }),
+          }),
+        );
+        expect(yield* openBlankLink).toBe(true);
+
+        // A person clicking in the guest itself gives it a focused frame.
+        Object.assign(contents, { focusedFrame: {} });
+        expect(yield* openBlankLink).toBe(false);
+      }).pipe(Effect.provide(managerLayer()), Effect.scoped),
+  );
+
+  effectIt.effect("reports early and subsequent load failures for the current guest", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.DesktopBrowserHost;
+      const serverTab = { threadId: "thread-1", tabId: "server-tab-1" };
+      const lines = yield* Queue.unbounded<string>();
+      yield* host.events.pipe(
+        Stream.runForEach((line) => Queue.offer(lines, new TextDecoder().decode(line))),
+        Effect.forkScoped({ startImmediately: true }),
+      );
+      const makeGuest = (id: number) => {
+        const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+        const wc = Object.assign(
+          makeTestPreviewWebContents(
+            async () => ({
+              toJPEG: () => Buffer.from("jpeg"),
+              getSize: () => ({ width: 100, height: 80 }),
+            }),
+            id,
+          ),
+          {
+            isDevToolsOpened: () => false,
+            getUserAgent: () => "Electron",
+            once: vi.fn(),
+            on: (event: string, listener: (...args: unknown[]) => void) => {
+              listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+            },
+          },
+        );
+        const emit = (event: string, ...args: unknown[]) => {
+          for (const listener of listeners.get(event) ?? []) listener(...args);
+        };
+        return {
+          wc,
+          emit,
+          fail: (url: string) =>
+            emit("did-fail-load", {}, -202, "ERR_CERT_AUTHORITY_INVALID", url, true),
+        };
+      };
+      const initial = makeGuest(42);
+      const replacement = makeGuest(43);
+      const manager = yield* PreviewManager.PreviewManager;
+      const statuses: PreviewManager.PreviewNavStatus[] = [];
+      yield* manager.subscribeStateChanges((_tabId, state) =>
+        Effect.sync(() => {
+          statuses.push(state.navStatus);
+        }),
+      );
+      yield* manager.createTab("tab_1", { serverTab });
+      yield* manager.prepareWebview(initial.wc);
+      yield* manager.prepareWebview(replacement.wc);
+      initial.fail("https://first.local/");
+      initial.emit("did-start-navigation", { isMainFrame: false, isSameDocument: false });
+      initial.emit("did-start-loading");
+      replacement.fail("https://second.local/");
+      const failure = (url: string) => ({
+        type: "loadFailed",
+        ...serverTab,
+        url,
+        code: -202,
+        description: "ERR_CERT_AUTHORITY_INVALID",
+      });
+
+      fromId.mockReturnValue(initial.wc);
+      yield* manager.registerWebview("tab_1", 42);
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual({ type: "attached", ...serverTab });
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual(failure("https://first.local/"));
+
+      fromId.mockReturnValue(replacement.wc);
+      yield* manager.registerWebview("tab_1", 43);
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual({ type: "detached", ...serverTab });
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual({ type: "attached", ...serverTab });
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual(failure("https://second.local/"));
+
+      // A callback queued by the old guest must not report a failure for its replacement.
+      initial.fail("https://stale.local/");
+      replacement.fail("https://current.local/");
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual(failure("https://current.local/"));
+      expect(statuses).not.toContainEqual(expect.objectContaining({ url: "https://stale.local/" }));
+
+      const retried = makeGuest(44);
+      yield* manager.prepareWebview(retried.wc);
+      retried.fail("https://retry.local/");
+      retried.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+      fromId.mockReturnValue(retried.wc);
+      yield* manager.registerWebview("tab_1", 44);
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual({ type: "detached", ...serverTab });
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual({ type: "attached", ...serverTab });
+      expect(statuses.at(-1)?.kind).toBe("Success");
+    }).pipe(Effect.provide(managerLayer())),
   );
 
   effectIt.effect("discards a screenshot that resolves after its guest is replaced", () =>
