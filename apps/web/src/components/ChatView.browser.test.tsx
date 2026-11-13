@@ -1,10 +1,10 @@
 import { createMemoryHistory } from "@tanstack/react-router";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { ThreadId } from "@t3tools/contracts";
+import { RunId, ThreadId } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
 import { expect, it, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+import { cdp, page, userEvent } from "vite-plus/test/browser";
 
 import { AppRoot } from "~/AppRoot";
 // The route loads ChatView lazily, and its first transform (React Compiler over ~4k lines)
@@ -15,9 +15,14 @@ import { selectThreadDiffPanelSelection, useDiffPanelStore } from "~/diffPanelSt
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { getRouter } from "~/router";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { environmentThreadDetails } from "~/state/threads";
 import {
   ENVIRONMENT_ID,
   PROJECT_ID,
+  assistantItem,
+  dispatchedCommands,
+  emitThreadEvent,
   installFakeEnvironment,
   threadWithHistory,
   type FakeDriver,
