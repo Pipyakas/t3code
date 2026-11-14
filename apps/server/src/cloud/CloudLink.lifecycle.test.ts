@@ -1192,6 +1192,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
           pid: 123,
           readyConnections: 0,
           hostname: "prod-abc.t3coderelay.com",
+          origin: null,
           protocol: null,
         },
       }),
