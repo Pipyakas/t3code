@@ -28,8 +28,8 @@ import { useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref 
 
 import { useAssetUrls } from "../../assets/assetUrls";
 import { threadEnvironment } from "../../state/threads";
-import { useQuietThreadShell, useThreadProjection } from "../../state/entities";
-import { useAtomCommand } from "../../state/use-atom-command";
+import { useQuietThreadProjection, useQuietThreadShell } from "../../state/entities";
+import { useEnvironment } from "../../state/environments";import { useAtomCommand } from "../../state/use-atom-command";
 import { isImageAttachment, type ChatMessage } from "../../types";
 import { cn } from "~/lib/utils";
 import { Button, InlineButton } from "../ui/button";
@@ -93,7 +93,7 @@ export function QueuedRunsControl({
   readonly timestampFormat: TimestampFormat;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const projection = useThreadProjection(
+  const projection = useQuietThreadProjection(
     scopeThreadRef(props.environmentId, props.threadId),
   )?.projection;
   const promote = useAtomCommand(threadEnvironment.promoteQueuedRun);
