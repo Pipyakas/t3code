@@ -4,6 +4,7 @@ import {
   buildExpiredTerminalContextToastCopy,
   mergeDirectPreviewAnnotation,
   planComposerTurn,
+  deriveTimelineWorking,
   snapshotComposerSend,
   withMessageContext,
   deriveAvailableRevertTurnCounts,
@@ -41,6 +42,7 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
 
 import type { Thread } from "../types";
+import { derivePhase } from "../session-logic";
 import { makeThreadFixture, makeThreadProjectionFixture } from "../test-fixtures";
 import {
   getAntigravitySendBlockReason,
@@ -1087,6 +1089,28 @@ describe("snapshotComposerSend", () => {
       ensureInlineContextReferences("run", [terminalContextReference(live)]).trim(),
     );
   });
+});
+
+describe("deriveTimelineWorking", () => {
+  it.each(["preparing", "starting", "queued"] as const)(
+    "restores activity from a persisted %s session without a local send",
+    (status) => {
+      const state = {
+        phase: derivePhase({ ...readySession, status }),
+        isSendBusy: false,
+        isCompacting: false,
+        runlessWorkStartedAt: null,
+      };
+      expect(deriveTimelineWorking(state)).toBe(true);
+      expect(deriveTimelineWorking({ ...state, phase: "ready" })).toBe(false);
+      expect(
+        deriveTimelineWorking({
+          ...state,
+          phase: derivePhase({ ...readySession, status: "failed" }),
+        }),
+      ).toBe(false);
+    },
+  );
 });
 
 describe("planComposerTurn", () => {
