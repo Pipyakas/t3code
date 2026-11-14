@@ -20973,8 +20973,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     });
   const workflowSnapshot = (input: {
     readonly uuid: string;
-    readonly state: "queued" | "start" | "done";
-    readonly secondState?: "queued" | "start" | "done";
+    readonly state: "queued" | "start" | "done" | "error";
+    readonly secondState?: "queued" | "start" | "done" | "error";
     readonly startedAt?: number;
     readonly lastProgressAt?: number;
     readonly durationMs?: number;
