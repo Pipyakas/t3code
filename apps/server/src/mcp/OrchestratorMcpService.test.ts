@@ -2253,7 +2253,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                       cause: new Error("refused by the orchestrator"),
                     }) as never,
                   )
-                : Effect.succeed({} as never),
+                : Effect.succeed({ storedEvents: [] } as never),
           }),
           ServerSettings.layerTest(),
           providerRegistryLayer([
