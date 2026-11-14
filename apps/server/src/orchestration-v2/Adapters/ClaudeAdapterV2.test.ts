@@ -17027,21 +17027,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           yield* Queue.offer(harness.sdkMessages, frame);
         }
         yield* harness.awaitContinuation(1);
-        yield* harness.until(() =>
-          harness.events.some(
-            (event) =>
-              event.type === "subagent.updated" &&
-              event.subagent.progress === "Waiting on the nested check",
+              event.subagent.nativeTaskRef?.nativeId === OUTER_TASK_ID &&
+              event.subagent.status === "completed",
           ),
         );
-        yield* Queue.offer(
-          harness.sdkMessages,
-          makeResultFrame({
-            uuid: "00000000-0000-4000-8000-000000000980",
-            result: "The audit finished.",
-          }),
-        );
-        yield* harness.runtime.startTurn(
+        yield* yieldTicks(50);        yield* harness.runtime.startTurn(
           makeClaudeTestTurnInput({
             threadId: harness.threadId,
             providerThread: harness.providerThread,
@@ -18888,41 +18878,216 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         }
         yield* Queue.take(harness.terminalReceipts);
 
-        const efforts = new Map(
-          harness.events.flatMap((event) =>
-            event.type === "subagent.updated"
-              ? [
-                  [
-                    event.subagent.nativeTaskRef?.nativeId,
-                    getModelSelectionStringOptionValue(event.subagent.modelSelection, "effort"),
-                  ] as const,
-                ]
-              : [],
-          ),
-        );
-        assert.deepEqual(Object.fromEntries(efforts), {
-          [`task-${OUTER_TOOL_USE_ID}`]: "low",
-          [`task-${UNSPECIFIED_TOOL_USE_ID}`]: undefined,
-          [`task-${OVERRIDING_TOOL_USE_ID}`]: "max",
-        });
-        const childEfforts = harness.events.flatMap((event) =>
-          event.type === "app_thread.created" && event.appThread.id !== harness.threadId
-            ? [getModelSelectionStringOptionValue(event.appThread.modelSelection, "effort")]
+      const selections = Object.fromEntries(
+        harness.events.flatMap((event) =>
+          event.type === "subagent.updated"
+            ? [[event.subagent.nativeTaskRef?.nativeId, event.subagent.modelSelection] as const]
             : [],
-        );
-        assert.deepEqual(childEfforts, ["low", undefined, "max"]);
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            NodeServices.layer,
-            NodeCrypto.layer,
-          ),
+        ),
+      );
+      const instanceId = CLAUDE_TEST_MODEL_SELECTION.instanceId;
+      assert.deepEqual(selections, {
+        [`task-${TUNED_TOOL_USE_ID}`]: {
+          instanceId,
+          model: "claude-custom-tuned",
+          options: [{ id: "effort", value: "brutal" }],
+        },
+        [`task-${SHADOW_TOOL_USE_ID}`]: { instanceId, model: "opus" },
+      });
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
         ),
       ),
     ),
   );
+
+  it.effect("records explicit effort, else the effort a subagent's transcript reports", () => {
+    const UNSPECIFIED_TOOL_USE_ID = "toolu-effort-nested-unspecified";
+    const firstRead = Deferred.makeUnsafe<void>();
+    return Effect.gen(function* () {
+      const OUTER_TOOL_USE_ID = "toolu-effort-outer";
+      const OVERRIDING_TOOL_USE_ID = "toolu-effort-nested-overriding";
+      const fileSystem = yield* FileSystem.FileSystem;
+      const configDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-claude-effort-",
+      });
+      // Claude names the folder after the resolved cwd, here as if /workspace were a symlink.
+      const subagentsDir = NodePath.join(
+        configDir,
+        "projects",
+        "-private-workspace",
+        WAKE_NATIVE_SESSION,
+        "subagents",
+      );
+      yield* fileSystem.makeDirectory(subagentsDir, { recursive: true });
+      const transcriptPath = NodePath.join(
+        subagentsDir,
+        `agent-task-${UNSPECIFIED_TOOL_USE_ID}.jsonl`,
+      );
+      yield* fileSystem.writeFileString(
+        transcriptPath,
+        `{"type":"user","uuid":"effort-line-0","message":{"role":"user","content":"Check one thing."}}\n`,
+      );
+      const harness = yield* makeWakeHarnessWithOptions({
+        environment: { CLAUDE_CONFIG_DIR: configDir },
+      });
+      const now = yield* DateTime.now;
+      const parentSelection = {
+        instanceId: CLAUDE_TEST_MODEL_SELECTION.instanceId,
+        model: "claude-opus-4-6",
+        options: [{ id: "effort", value: "high" }],
+      } satisfies ModelSelection;
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          attemptId: RunAttemptId.make("attempt-subagent-nested-effort"),
+          text: "Spawn a subagent that spawns two more.",
+          attachments: [],
+          modelSelection: parentSelection,
+        }),
+      );
+      const agentCall = (id: string, effort?: string) => ({
+        type: "tool_use" as const,
+        id,
+        name: "Agent",
+        input: {
+          description: id,
+          subagent_type: "general-purpose",
+          ...(effort === undefined ? {} : { effort }),
+          prompt: "Check one thing.",
+        },
+      });
+      const taskStarted = (id: string, uuid: string) =>
+        claudeSdkFrame({
+          type: "system",
+          subtype: "task_started",
+          task_id: `task-${id}`,
+          tool_use_id: id,
+          description: id,
+          task_type: "local_agent",
+          uuid,
+          session_id: WAKE_NATIVE_SESSION,
+        });
+      for (const frame of [
+        claudeSdkFrame({
+          type: "assistant",
+          parent_tool_use_id: null,
+          message: {
+            model: parentSelection.model,
+            id: "msg_nested_effort_outer_launch",
+            type: "message",
+            role: "assistant",
+            content: [agentCall(OUTER_TOOL_USE_ID, "low")],
+          },
+          uuid: "00000000-0000-4000-8000-000000000221",
+          session_id: WAKE_NATIVE_SESSION,
+        }),
+        taskStarted(OUTER_TOOL_USE_ID, "00000000-0000-4000-8000-000000000222"),
+        claudeSdkFrame({
+          type: "assistant",
+          parent_tool_use_id: OUTER_TOOL_USE_ID,
+          message: {
+            model: parentSelection.model,
+            id: "msg_nested_effort_inner_launch",
+            type: "message",
+            role: "assistant",
+            content: [agentCall(UNSPECIFIED_TOOL_USE_ID), agentCall(OVERRIDING_TOOL_USE_ID, "max")],
+          },
+          uuid: "00000000-0000-4000-8000-000000000223",
+          session_id: WAKE_NATIVE_SESSION,
+        }),
+        taskStarted(UNSPECIFIED_TOOL_USE_ID, "00000000-0000-4000-8000-000000000224"),
+        taskStarted(OVERRIDING_TOOL_USE_ID, "00000000-0000-4000-8000-000000000225"),
+        claudeSdkFrame({
+          type: "system",
+          subtype: "task_notification",
+          task_id: `task-${UNSPECIFIED_TOOL_USE_ID}`,
+          tool_use_id: UNSPECIFIED_TOOL_USE_ID,
+          status: "completed",
+          output_file: "/tmp/claude-replay/tasks/unspecified.output",
+          summary: "OK",
+          uuid: "00000000-0000-4000-8000-000000000227",
+          session_id: WAKE_NATIVE_SESSION,
+        }),
+        makeSubagentToolResultFrame({
+          parentToolUseId: OUTER_TOOL_USE_ID,
+          uuid: "00000000-0000-4000-8000-000000000228",
+          toolUseId: UNSPECIFIED_TOOL_USE_ID,
+        }),
+        makeResultFrame({
+          uuid: "00000000-0000-4000-8000-000000000226",
+          result: "Spawned the subagents.",
+        }),
+      ]) {
+        yield* Queue.offer(harness.sdkMessages, frame);
+      }
+      // The settled subagent's reply lands after the first lookup, beyond one read's cap.
+      yield* Deferred.await(firstRead);
+      NodeFS.appendFileSync(
+        transcriptPath,
+        `${"x".repeat(512 * 1024 + 1)}\n{"type":"assistant","effort":"low","uuid":"effort-line-1","message":{"role":"assistant","id":"msg_effort_child","content":[{"type":"text","text":"OK"}]}}\n`,
+      );
+      yield* TestClock.adjust(500);
+      yield* Queue.take(harness.terminalReceipts);
+      // A run can stop reading events once its subagents settle, so the settle carries the effort.
+      const settle = harness.events.find(
+        (event) =>
+          event.type === "subagent.updated" &&
+          event.subagent.status === "completed" &&
+          event.subagent.nativeTaskRef?.nativeId === `task-${UNSPECIFIED_TOOL_USE_ID}`,
+      );
+      assert.equal(
+        settle?.type === "subagent.updated"
+          ? getModelSelectionStringOptionValue(settle.subagent.modelSelection, "effort")
+          : null,
+        "low",
+      );
+
+      const efforts = new Map(
+        harness.events.flatMap((event) =>
+          event.type === "subagent.updated"
+            ? [
+                [
+                  event.subagent.nativeTaskRef?.nativeId,
+                  getModelSelectionStringOptionValue(event.subagent.modelSelection, "effort"),
+                ] as const,
+              ]
+            : [],
+        ),
+      );
+      assert.deepEqual(Object.fromEntries(efforts), {
+        [`task-${OUTER_TOOL_USE_ID}`]: "low",
+        [`task-${UNSPECIFIED_TOOL_USE_ID}`]: "low",
+        [`task-${OVERRIDING_TOOL_USE_ID}`]: "max",
+      });
+      const childEfforts = harness.events.flatMap((event) =>
+        event.type === "app_thread.created" && event.appThread.id !== harness.threadId
+          ? [getModelSelectionStringOptionValue(event.appThread.modelSelection, "effort")]
+          : [],
+      );
+      assert.deepEqual(childEfforts, ["low", undefined, "max"]);
+    }).pipe(
+      Effect.provideService(WorkflowAgentTranscriptReadObserver, (read) =>
+        read.agentId === `task-${UNSPECIFIED_TOOL_USE_ID}`
+          ? Deferred.succeed(firstRead, undefined).pipe(Effect.asVoid)
+          : Effect.void,
+      ),
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,        ),
+      ),
+    );
+  });
 
   it.effect.each([
     {
