@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - realpathSync.native resolves Windows 8.3 short names, which the Effect realPath does not.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
@@ -342,27 +343,37 @@ const git = (
     return result.stdout.trim();
   });
 
-// Git blocks file submodule transports (CVE-2022-39253) despite repo config; local fixtures need env permission.
-const withGitFileProtocol = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.flatMap(HostProcess.Environment, (env) =>
-    effect.pipe(
-      Effect.provideService(HostProcess.Environment, { ...env, GIT_ALLOW_PROTOCOL: "file" }),
-    ),
-  );
+    const fileSystem = yield* FileSystem.FileSystem;
+    const pathService = yield* Path.Path;
+    // Git commits whatever already sits in cwd, so only an empty one can take the shared copy.
+    const empty =
+      !(yield* fileSystem.exists(cwd)) || (yield* fileSystem.readDirectory(cwd)).length === 0;
+    if (empty) {
+      if (!repoTemplate) {
+        const template = yield* fileSystem.makeTempDirectory({
+          prefix: "git-vcs-driver-template-",
+        });
+        yield* commitInitialRepo(template);
+        repoTemplate = template;
+      }
+      yield* fileSystem.copy(repoTemplate, cwd);
+    } else {
+      yield* commitInitialRepo(cwd);
+    }
+    const head = yield* fileSystem.readFileString(pathService.join(cwd, ".git", "HEAD"));
+    return { initialBranch: head.trim().replace(/^ref: refs\/heads\//, "") };
+  });
 
-const initRepoWithCommit = (
-  cwd: string,
-): Effect.Effect<
-  { readonly initialBranch: string },
-  GitCommandError | PlatformError.PlatformError,
-  GitVcsDriver.GitVcsDriver | FileSystem.FileSystem | Path.Path
-> =>
+const commitInitialRepo = (cwd: string, initArgs: ReadonlyArray<string> = []) =>
   Effect.gen(function* () {
-    const driver = yield* GitVcsDriver.GitVcsDriver;
-    yield* driver.initRepo({ cwd });
-    yield* git(cwd, ["config", "user.email", "test@test.com"]);
-    yield* git(cwd, ["config", "user.name", "Test"]);
-    yield* writeTextFile(cwd, "README.md", "# test\n");
+    const fileSystem = yield* FileSystem.FileSystem;
+    const pathService = yield* Path.Path;
+    yield* git(cwd, ["init", ...initArgs]);
+    yield* fileSystem.writeFileString(
+      pathService.join(cwd, ".git", "config"),
+      "[user]\n\temail = test@test.com\n\tname = Test\n",
+      { flag: "a" },
+    );    yield* writeTextFile(cwd, "README.md", "# test\n");
     yield* git(cwd, ["add", "."]);
     yield* git(cwd, ["commit", "-m", "initial commit"]);
     const initialBranch = yield* git(cwd, ["branch", "--show-current"]);
@@ -7076,41 +7087,108 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
     );
 
     it.effect.each([
-      { operation: "cherry-pick", head: "CHERRY_PICK_HEAD" },
-      { operation: "revert", head: "REVERT_HEAD" },
-    ])("rejects selected-file commits during a $operation", ({ operation, head }) =>
+      { operation: "cherry-pick", head: "CHERRY_PICK_HEAD", refs: "files" },
+      { operation: "revert", head: "REVERT_HEAD", refs: "files" },
+      // Reftable keeps CHERRY_PICK_HEAD and REVERT_HEAD as refs with no file under .git.
+      { operation: "cherry-pick", head: "CHERRY_PICK_HEAD", refs: "reftable" },
+      { operation: "revert", head: "REVERT_HEAD", refs: "reftable" },
+    ])(
+      "rejects selected-file commits during a $operation ($refs)",
+      ({ operation, head, refs }, ctx) =>
+        Effect.gen(function* () {
+          if (refs === "reftable" && !gitHasReftable)
+            return ctx.skip("Needs Git 2.45 or later for reftable.");
+          const cwd = yield* makeTmpDir();
+          if (refs === "reftable") yield* commitInitialRepo(cwd, ["--ref-format=reftable"]);
+          else yield* initRepoWithCommit(cwd);
+          // Reftable leaves .git/HEAD as a stub, so ask Git for the branch.
+          const initialBranch = yield* git(cwd, ["symbolic-ref", "--short", "HEAD"]);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          yield* git(cwd, ["checkout", "-b", "other"]);
+          yield* writeTextFile(cwd, "README.md", "other version\n");
+          yield* writeTextFile(cwd, "picked.txt", "picked\n");
+          yield* git(cwd, ["add", "."]);
+          yield* git(cwd, ["commit", "-m", "Other"]);
+          if (operation === "cherry-pick") yield* git(cwd, ["checkout", initialBranch]);
+          yield* writeTextFile(cwd, "README.md", "main version\n");
+          yield* git(cwd, ["commit", "-am", "Main"]);
+          const originalHead = yield* git(cwd, ["rev-parse", "HEAD"]);
+          yield* git(cwd, ["branch", head]);
+          const result = yield* driver.execute({
+            operation: `test.${operation}`,
+            cwd,
+            args: [operation, operation === "cherry-pick" ? "other" : "HEAD~1"],
+            allowNonZeroExit: true,
+          });
+          assert.equal(result.exitCode, 1);
+          yield* writeTextFile(cwd, "README.md", "resolved version\n");
+          yield* git(cwd, ["add", "README.md"]);
+          const selected = operation === "cherry-pick" ? "picked.txt" : "README.md";
+
+          const commit = yield* driver
+            .commit(cwd, "Partial", "", { stage: { filePaths: [selected] } })
+            .pipe(Effect.result);
+
+          assert.isTrue(Result.isFailure(commit), `Selected-file ${operation} commit succeeded`);
+          assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), originalHead);
+          assert.equal(
+            yield* git(cwd, [
+              "-c",
+              "core.warnAmbiguousRefs=false",
+              "rev-parse",
+              "--verify",
+              "--symbolic-full-name",
+              head,
+            ]),
+            head,
+          );
+        }),
+    );
+
+    it.effect("rejects selected-file commits during a multi-commit no-commit cherry-pick", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         const { initialBranch } = yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
-        yield* git(cwd, ["checkout", "-b", "other"]);
-        yield* writeTextFile(cwd, "README.md", "other version\n");
-        yield* writeTextFile(cwd, "picked.txt", "picked\n");
+        const path = yield* Path.Path;
+        yield* writeTextFile(cwd, "a.txt", "base a\n");
+        yield* writeTextFile(cwd, "b.txt", "base b\n");
         yield* git(cwd, ["add", "."]);
-        yield* git(cwd, ["commit", "-m", "Other"]);
-        if (operation === "cherry-pick") yield* git(cwd, ["checkout", initialBranch]);
-        yield* writeTextFile(cwd, "README.md", "main version\n");
+        yield* git(cwd, ["commit", "-m", "Base"]);
+        yield* git(cwd, ["checkout", "-b", "feature"]);
+        yield* writeTextFile(cwd, "a.txt", "feature a\n");
+        yield* writeTextFile(cwd, "b.txt", "feature b\n");
+        yield* git(cwd, ["commit", "-am", "Feature one"]);
+        yield* writeTextFile(cwd, "later.txt", "later\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "Feature two"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+        yield* writeTextFile(cwd, "a.txt", "main a\n");
+        yield* writeTextFile(cwd, "b.txt", "main b\n");
         yield* git(cwd, ["commit", "-am", "Main"]);
-        const originalHead = yield* git(cwd, ["rev-parse", "HEAD"]);
-        const result = yield* driver.execute({
-          operation: `test.${operation}`,
+        const head = yield* git(cwd, ["rev-parse", "HEAD"]);
+        const started = yield* driver.execute({
+          operation: "test.sequencer",
           cwd,
-          args: [operation, operation === "cherry-pick" ? "other" : "HEAD~1"],
+          args: ["cherry-pick", "--no-commit", "feature~1", "feature"],
           allowNonZeroExit: true,
         });
-        assert.equal(result.exitCode, 1);
-        yield* writeTextFile(cwd, "README.md", "resolved version\n");
-        yield* git(cwd, ["add", "README.md"]);
+        assert.equal(started.exitCode, 1);
+        yield* writeTextFile(cwd, "a.txt", "resolved a\n");
         const gitDir = yield* git(cwd, ["rev-parse", "--absolute-git-dir"]);
-        const selected = operation === "cherry-pick" ? "picked.txt" : "README.md";
+        assert.isFalse(NodeFS.existsSync(path.join(gitDir, "CHERRY_PICK_HEAD")));
+        const names = ["index", "sequencer/todo", "sequencer/head"];
+        const before = names.map((name) => NodeFS.readFileSync(path.join(gitDir, name)));
 
-        const commit = yield* driver
-          .commit(cwd, "Partial", "", { stage: { filePaths: [selected] } })
-          .pipe(Effect.result);
-
-        assert.isTrue(Result.isFailure(commit), `Selected-file ${operation} commit succeeded`);
-        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), originalHead);
-        assert.isTrue(NodeFS.existsSync(`${gitDir}/${head}`));
+        const error = yield* driver
+          .commit(cwd, "Partial", "", { stage: { filePaths: ["a.txt"] } })
+          .pipe(Effect.flip);
+        assert.include(error.detail, "Cannot commit selected files during a cherry-pick or revert");
+        assert.deepEqual(
+          names.map((name) => NodeFS.readFileSync(path.join(gitDir, name))),
+          before,
+        );
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), head);
       }),
     );
 
