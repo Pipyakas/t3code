@@ -170,6 +170,7 @@ it.effect.each(deliveries)(
                 setModel: () => Effect.void,
                 applyFlagSettings: () => Effect.void,
                 setPermissionMode: () => Effect.void,
+                renameSession: () => Effect.void,
                 backgroundTasks: () => Effect.succeed(false),
                 mcpServerStatus: Effect.succeed([]),
                 readMcpResource: () => Effect.die("unexpected MCP resource read"),
@@ -525,6 +526,7 @@ it.effect("applies an effort change to the running Claude query without waiting 
                   flagSettings.push(flags);
                 }),
               setPermissionMode: () => Effect.void,
+              renameSession: () => Effect.void,
               backgroundTasks: () => Effect.succeed(false),
               mcpServerStatus: Effect.succeed([]),
               readMcpResource: () => Effect.die("unexpected MCP resource read"),
@@ -612,6 +614,7 @@ it.effect("applies an effort change to the running Claude query without waiting 
         ),
       ),
     ),
+
   ),
 );
 
@@ -723,6 +726,7 @@ it.effect("offers a continuation for a later wake after a queued continuation is
                   setModel: () => Effect.void,
                   applyFlagSettings: () => Effect.void,
                   setPermissionMode: () => Effect.void,
+                  renameSession: () => Effect.void,
                   backgroundTasks: () => Effect.succeed(false),
                   mcpServerStatus: Effect.succeed([]),
                   readMcpResource: () => Effect.die("unexpected MCP resource read"),
@@ -783,6 +787,7 @@ it.effect("offers a continuation for a later wake after a queued continuation is
           yield* Queue.offer(sdkMessages, result(`result-${id}`, false));
           yield* Fiber.join(waiting);
         });
+
         yield* orchestrator.dispatch({
           type: "thread.create",
           commandId: CommandId.make("create"),
