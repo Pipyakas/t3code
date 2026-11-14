@@ -4674,6 +4674,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
 
       const headSha = "6074dd48ff";
       let checks: PullRequestDetail["checks"] = [];
+      let activityUnavailable = false;
       const host = Layer.mergeAll(
         NodeServices.layer,
         NodeCrypto.layer,
@@ -4689,13 +4690,15 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
               checks,
             })),
           activity: () =>
-            Effect.succeed({
-              comments: [],
-              commentCount: 0,
-              commentsTruncated: false,
-              reviewThreads: [],
-              commits: [],
-            }),
+            activityUnavailable
+              ? Effect.die("comments unavailable")
+              : Effect.succeed({
+                  comments: [],
+                  commentCount: 0,
+                  commentsTruncated: false,
+                  reviewThreads: [],
+                  commits: [],
+                }),
         }),
       );
       const wakes = Effect.map(
@@ -4722,6 +4725,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       yield* sweep;
       assert.lengthOf(yield* wakes, 1);
 
+      activityUnavailable = true;
       checks = [{ name: "lint", status: "success", description: null, url: null, required: true }];
       yield* TestClock.adjust("10 minutes");
       yield* sweep;
