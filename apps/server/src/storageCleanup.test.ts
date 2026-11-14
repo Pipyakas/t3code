@@ -2703,8 +2703,38 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
-  it.live.each([
-    [
+  it.effect("removes a worktree owned by a repository other than the project root", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MS);
+        const fixture = yield* cleanupFixture();
+        const { fs, command, config } = fixture;
+        const oldRepo = yield* fs.realPath(
+          yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-old-repo-" }),
+        );
+        yield* command(oldRepo, ["init", "-b", "main"]);
+        yield* command(oldRepo, ["config", "user.email", "cleanup@example.test"]);
+        yield* command(oldRepo, ["config", "user.name", "Cleanup test"]);
+        yield* fs.writeFileString(`${oldRepo}/tracked.txt`, "original\n");
+        yield* command(oldRepo, ["add", "."]);
+        yield* command(oldRepo, ["commit", "-m", "initial"]);
+        yield* fs.makeDirectory(`${config.worktreesDir}/old-repo`, { recursive: true });
+        const oldWorktree = `${config.worktreesDir}/old-repo/feature`;
+        yield* command(oldRepo, ["worktree", "add", "-b", "feature", oldWorktree]);
+        fixture.setThreads([shell({ branch: "feature", worktreePath: oldWorktree })]);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries.find((entry) => entry.path === oldWorktree)).toMatchObject({
+          outcome: "removed",
+        });
+        expect(yield* fs.exists(oldWorktree)).toBe(false);
+        expect((yield* command(oldRepo, ["worktree", "list", "--porcelain"])).stdout).not.toContain(
+          oldWorktree,
+        );
+      }),
+    ),
+  );
+  it.effect.each([
+  it.live.each([    [
       "its owner's branch is cleared",
       (worktree: string) => [shell({ branch: null, worktreePath: worktree, updatedAt: at(0) })],
     ],
