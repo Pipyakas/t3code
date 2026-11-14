@@ -961,6 +961,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         tool?: { name: string; input: Record<string, unknown> };
         command: string;
         running: boolean;
+        awaited?: boolean;
         stopping?: boolean;
         output: string;
         cursor: number;
@@ -1572,6 +1573,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             taskId,
             kind: "command",
             description: shell.command,
+            ...(shell.awaited === true ? { awaited: true } : {}),
             ...(shell.state.subagent === undefined
               ? {}
               : { parentTaskId: shell.state.subagent.call.nativeId }),
@@ -1591,7 +1593,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             : [],
         ),
       );
-      const allTasks = [...roster, ...imageTasks];
+      const allTasks = roster.concat(imageTasks);
       const current = state.providerThread.pendingBackgroundTasks ?? [];
       if (
         state.publishedBackgroundWork === hasBackground(state) &&
@@ -1600,6 +1602,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           (task, index) =>
             task.taskId === allTasks[index]?.taskId &&
             task.description === allTasks[index]?.description &&
+            task.awaited === allTasks[index]?.awaited &&
             (task.kind === "subagent" ? task.childThreadId : undefined) ===
               (allTasks[index]?.kind === "subagent" ? allTasks[index]?.childThreadId : undefined),
         )
@@ -1789,6 +1792,10 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
                     tool: { name: "shell", input: { command: info.command } },
                   }),
               command: info.command,
+              awaited:
+                state.providerThread.pendingBackgroundTasks?.some(
+                  (task) => task.taskId === info.id && task.awaited === true,
+                ) === true,
               running: true,
               output: "",
               cursor: 0,
@@ -4150,6 +4157,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       const instructions = [
         buildRuntimeInstructions({ harness: "OpenCode", model: turnInput.modelSelection.model }),
         t3OrchestrationSystemPrompt(mcpAvailable, mcpSession?.capabilities?.has("device") === true),
+        mcpAvailable
+          ? "To wait for a background shell you started (tests, a build), call `t3_background_wait` with its shell ID before you end your turn. Do not mark work you leave running, or PRs."
+          : undefined,
       ]
         .filter((part) => part !== undefined && part.length > 0)
         .join("\n\n");
@@ -4936,6 +4946,26 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
                   }),
             ),
           ),
+      ),
+      awaitBackgroundTasks: Effect.fn("OpenCode2Adapter.awaitBackgroundTasks")(
+        function* ({ providerThread, taskIds, awaited }) {
+          const nativeThreadId = providerThread.nativeThreadRef?.nativeId;
+          const state = nativeThreadId == null ? undefined : threads.get(nativeThreadId);
+          if (state === undefined) return { matched: [] };
+          const sessions = sessionsOf(state);
+          const matched = [...new Set(taskIds)].filter((taskId) => {
+            const shell = shells.get(taskId);
+            return shell !== undefined && shell.running && sessions.includes(shell.state);
+          });
+          if (matched.length === 0) return { matched };
+          for (const taskId of matched) {
+            const shell = shells.get(taskId)!;
+            shell.awaited = awaited;
+            yield* syncRosterAncestors(shell.state);
+          }
+          return { matched };
+        },
+        (effect) => effect.pipe(lock.withPermit),
       ),
       stopTask: Effect.fn("OpenCode2Adapter.stopTask")(function* ({ providerThread, taskId }) {
         const shell = shells.get(taskId);
