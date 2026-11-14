@@ -1,4 +1,7 @@
 import { applyThreadPullRequestLinkUpdate } from "../threadPullRequests.ts";
+// The fork's orchestrationV2 projection does not implement thread.visit-recorded
+// (d19467a59e was skipped), so the visit-visit helper stays out.
+import { isQueuedProviderThreadPlaceholder } from "@t3tools/contracts";
 import type {
   OrchestrationV2DomainEvent,
   OrchestrationV2Run,
@@ -347,7 +350,15 @@ export function applyOrchestrationV2ProjectionEvent(
         ),
       };
     case "provider-thread.updated":
-      return { ...base, providerThreads: upsertEntity(base.providerThreads, event.payload) };
+      return {
+        ...base,
+        thread:
+          event.payload.appThreadId === base.thread.id &&
+          !isQueuedProviderThreadPlaceholder(event.payload)
+            ? { ...base.thread, activeProviderThreadId: event.payload.id }
+            : base.thread,
+        providerThreads: upsertEntity(base.providerThreads, event.payload),
+      };
     case "provider-turn.updated":
       return {
         ...base,
