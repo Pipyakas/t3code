@@ -8,7 +8,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, it, describe } from "@effect/vitest";
-import { vi } from "vite-plus/test";
+import { afterAll, vi } from "vite-plus/test";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
@@ -346,6 +346,27 @@ const git = (
     return result.stdout.trim();
   });
 
+const [, gitMajor, gitMinor] =
+  /(\d+)\.(\d+)/u.exec(NodeChildProcess.execFileSync("git", ["--version"], { encoding: "utf8" })) ??
+  [];
+const gitHasReftable = Number(gitMajor) > 2 || (Number(gitMajor) === 2 && Number(gitMinor) >= 45);
+
+// Git blocks file submodule transports (CVE-2022-39253) despite repo config; local fixtures need env permission.
+const withGitFileProtocol = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.flatMap(HostProcess.Environment, (env) =>
+    effect.pipe(
+      Effect.provideService(HostProcess.Environment, { ...env, GIT_ALLOW_PROTOCOL: "file" }),
+    ),
+  );
+
+const initRepoWithCommit = (
+  cwd: string,
+): Effect.Effect<
+  { readonly initialBranch: string },
+  GitCommandError | PlatformError.PlatformError,
+  GitVcsDriver.GitVcsDriver | FileSystem.FileSystem | Path.Path
+> =>
+  Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
     // Git commits whatever already sits in cwd, so only an empty one can take the shared copy.
@@ -382,6 +403,12 @@ const commitInitialRepo = (cwd: string, initArgs: ReadonlyArray<string> = []) =>
     const initialBranch = yield* git(cwd, ["branch", "--show-current"]);
     return { initialBranch };
   });
+
+// Most tests start from the same one-commit repository; they copy it instead of spawning git.
+let repoTemplate: string | undefined;
+afterAll(() => {
+  if (repoTemplate) NodeFS.rmSync(repoTemplate, { recursive: true, force: true });
+});
 
 it.effect.each(["root", "nested", "worktree"] as const)(
   "skips clean filters while the %s index is locked and resumes after unlock",
@@ -4589,6 +4616,13 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           yield* git(cwd, ["checkout", "-b", "feature/many-untracked"]);
           yield* writeTextFile(cwd, ".git/info/exclude", "ignored.txt\n");
           yield* writeTextFile(cwd, "bulk[1]/ignored.txt", "ignored\n");
+          const clean = yield* driver.statusDetailsLocal(cwd, { includeBranchChanges: true });
+          assert.deepStrictEqual(clean.branchChanges, {
+            baseRef: "main",
+            insertions: 0,
+            deletions: 0,
+          });
+          assert.deepStrictEqual(untrackedScanRoots, []);
           yield* Effect.forEach(
             Array.from({ length: 1_001 }, (_, index) => `bulk[1]/${index}.txt`),
             (file) => writeTextFile(cwd, file, "one\ntwo\n"),
