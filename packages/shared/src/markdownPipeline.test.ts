@@ -405,7 +405,6 @@ it("preserves footnotes and original code positions across a callout", () => {
   expect(markdown.slice(block?.position?.start.offset, block?.position?.end.offset)).toBe(code);
 });
 
-
 it("preserves in-app thread links through the shared Markdown sanitizer", () => {
   const processor = unified()
     .use(remarkParse)
