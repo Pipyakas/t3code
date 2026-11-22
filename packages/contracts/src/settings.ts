@@ -1031,13 +1031,8 @@ export type SourceControlHostSettings = typeof SourceControlHostSettings.Type;
 const DEFAULT_ENABLED_SOURCE_CONTROL_HOSTS: ReadonlySet<string> = new Set(["github", "gitlab"]);
 
 /**
- * Whether a source control host is switched on for an environment. The host's `enabled` field
- * in `sourceControlHosts[kind]` decides; a host that has never been set takes its default.
- *
- * Every surface reads this: the server's provider registries hand a disabled host the same
- * unsupported provider an unregistered one gets, and the clients leave it out of their host
- * pickers. A non-boolean `enabled` is a blob this build cannot read a flag out of, so it falls
- * back to the default rather than guessing off.
+ * `sourceControlHosts[kind].enabled` decides; unset hosts use this fork's default set.
+ * Non-boolean values fall back to that default.
  */
 export function isSourceControlHostEnabled(
   kind: string,
@@ -1380,11 +1375,7 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   /**
-   * Partial presentation order for the provider lists (Settings > Providers,
-   * the picker's provider column). Listed ids come first in exactly this
-   * order; unlisted instances keep their existing relative order after them,
-   * so a newly added provider lands at the end instead of inside a saved
-   * arrangement.
+   * Partial provider display order: listed ids lead, unlisted keep their relative order.
    */
   providerOrder: Schema.Array(ProviderInstanceId).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
