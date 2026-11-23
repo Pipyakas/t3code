@@ -117,15 +117,13 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/archived": "Archive",
 };
 
-/** Sidebar order. A group with a hidden heading is set apart on screen by space alone. */
+/** Sidebar order. A group without a heading is set apart by space alone. */
 export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
-  readonly heading: string;
-  readonly headingHidden?: true;
+  readonly heading: string | null;
   readonly paths: ReadonlyArray<SettingsPath>;
 }> = [
   {
-    heading: msg("Preferences"),
-    headingHidden: true,
+    heading: null,
     paths: [
       "/settings/general",
       "/settings/appearance",
@@ -159,8 +157,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     ],
   },
   {
-    heading: msg("More"),
-    headingHidden: true,
+    heading: null,
     paths: ["/settings/maintenance", "/settings/labs", "/settings/about", "/settings/archived"],
   },
 ];
