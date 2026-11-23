@@ -1,5 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  // Exports left behind when upstream-side fork backports removed their callers.
+  "ignore": [
+    "apps/server/src/environment/forkVersionAdvertisement.ts",
+    "apps/server/src/orchestration-v2/placeholderThreadTitle.ts",
+    "apps/server/src/cloud/serviceProtocol.ts",
+    "packages/provider-opencode/src/server/openCode2Catalog.ts",
+    "packages/provider-opencode/src/server/status.ts",
+  ],
   // Exported types are part of our contracts even before they have consumers.
   "rules": { "types": "off", "nsTypes": "off" },
   // These executables are supplied by the OS or installed separately from npm.
