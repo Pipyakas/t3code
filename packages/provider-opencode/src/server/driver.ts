@@ -27,7 +27,13 @@ import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textG
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { openCodeUsageReader, type OpenCodeUsageReaderEnv } from "./usage.ts";
 import { readOpenCodeGoUsageLimits } from "./usageLimits.ts";
-import { loadOpenCode2Catalog } from "./openCode2Catalog.ts";
+import { loadOpenCode2CatalogWithNames, loadOpenCode2ProviderNames } from "./openCode2Catalog.ts";
+import {
+  configuredProviderNamePaths,
+  parseConfiguredProviderNames,
+  readOpenCodeCliModelSlugs,
+  reconcileOpenCode2Catalog,
+} from "./openCode2CliCatalog.ts";
 import {
   checkOpenCodeProviderStatus,
   loadOpenCode2Workspace,
@@ -376,9 +382,44 @@ export const OpenCodeDriver: ProviderDriver<
         Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
       ),
     });
-    const loadOpenCode2Models = yield* makeOpenCode2ModelLoader(
-      openCode2Server.withConnection(({ client }) => loadOpenCode2Catalog(client, host.paths.cwd)),
+    const loadSettledOpenCode2Models = yield* makeOpenCode2ModelLoader(
+      openCode2Server
+        .withConnection(({ client }) => loadOpenCode2CatalogWithNames(client, host.paths.cwd))
+        .pipe(Effect.map(({ models }) => models)),
     );
+    // A configured server already applies its own policies. For local instances the CLI loads
+    // the instance's config; the server API is used for metadata, not for authoritative slugs.
+    const loadOpenCode2Models =
+      effectiveConfig.serverUrl.trim().length > 0
+        ? loadSettledOpenCode2Models
+        : Effect.gen(function* () {
+            const [cliModels, serverModels] = yield* Effect.all([
+              readOpenCodeCliModelSlugs({
+                binaryPath: effectiveConfig.binaryPath,
+                environment: providerProbeEnvironment(processEnv),
+                cwd: host.paths.cwd,
+              }).pipe(Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime)),
+              loadSettledOpenCode2Models,
+            ]);
+            const serverNames = yield* openCode2Server.withConnection(({ client }) =>
+              loadOpenCode2ProviderNames(client, host.paths.cwd),
+            );
+            const providerNames = new Map(serverNames);
+            const configContent = processEnv.OPENCODE_CONFIG_CONTENT;
+            if (configContent) {
+              for (const [id, name] of parseConfiguredProviderNames(configContent)) {
+                providerNames.set(id, name);
+              }
+            }
+            for (const source of configuredProviderNamePaths(processEnv, pathService)) {
+              const file = yield* fileSystem.readFileString(source).pipe(Effect.option);
+              if (Option.isNone(file)) continue;
+              for (const [id, name] of parseConfiguredProviderNames(file.value)) {
+                providerNames.set(id, name);
+              }
+            }
+            return reconcileOpenCode2Catalog({ cliModels, serverModels, providerNames });
+          });
     const listOpenCode2Workspace = (cwd: string) =>
       openCode2Server.withConnection(({ client, events }) =>
         Effect.gen(function* () {
