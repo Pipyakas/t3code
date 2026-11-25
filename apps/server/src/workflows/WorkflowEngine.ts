@@ -1023,8 +1023,11 @@ const make = Effect.fn("WorkflowEngine.make")(function* (
           yield* wake(late, answered);
           return "delivered" as const;
         }
-        // The kept copy went to a wait that opened, or was dropped as already delivered.
-        if (outcome === "gone") return "delivered" as const;
+        if (outcome === "claimed") continue;
+        if (yield* store.signalSeen(options.id)) return "delivered" as const;
+        return yield* new WorkflowInputError({
+          problem: "Buffered signal expired or was removed.",
+        });
       }
     },
   );
