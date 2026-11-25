@@ -37,6 +37,12 @@ import { openCodeUsageReader, type OpenCodeUsageReaderEnv } from "./usage.ts";
 import { readOpenCodeGoUsageLimits } from "./usageLimits.ts";
 import { loadOpenCode2Catalog, loadOpenCode2DirectoryCatalog } from "./openCode2Catalog.ts";
 import {
+  configuredProviderNamePaths,
+  parseConfiguredProviderNames,
+  readOpenCodeCliModelSlugs,
+  reconcileOpenCode2Catalog,
+} from "./openCode2CliCatalog.ts";
+import {
   checkOpenCodeProviderStatus,
   followOpenCode2Scans,
   loadOpenCode2Workspace,
@@ -431,7 +437,7 @@ export const OpenCodeDriver: ProviderDriver<
     yield* Stream.runForEach(openCode2Server.connections, (connection) =>
       followScans(connection).pipe(Effect.andThen(followMachineCatalog(connection))),
     ).pipe(Effect.forkScoped);
-    const loadOpenCode2Models = yield* makeOpenCode2ModelLoader(
+    const loadServerOpenCode2Models = yield* makeOpenCode2ModelLoader(
       openCode2Server.withConnection((connection) =>
         followMachineCatalog(connection).pipe(
           Effect.andThen(loadOpenCode2Catalog(connection.client, machineDirectory(connection))),
@@ -439,6 +445,39 @@ export const OpenCodeDriver: ProviderDriver<
       ),
       processEnv,
     );
+    // A configured server already applies its own policies. A local server lists every provider
+    // any instance's config defines, so local instances keep only the slugs their own CLI lists.
+    const localCatalog = effectiveConfig.serverUrl.trim().length === 0;
+    const readCliCatalog = Effect.fn("OpenCodeDriver.readCliCatalog")(function* (
+      serverModels: ReadonlyArray<OpenCode2Model>,
+    ) {
+      const cliModels = yield* readOpenCodeCliModelSlugs({
+        binaryPath: effectiveConfig.binaryPath,
+        environment: providerProbeEnvironment(processEnv),
+        cwd: host.paths.cwd,
+      }).pipe(Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime));
+      const providerNames = new Map<string, string>();
+      for (const model of serverModels) {
+        if (model.providerName) providerNames.set(model.providerID, model.providerName);
+      }
+      const configContent = processEnv.OPENCODE_CONFIG_CONTENT;
+      if (configContent) {
+        for (const [id, name] of parseConfiguredProviderNames(configContent)) {
+          providerNames.set(id, name);
+        }
+      }
+      for (const source of configuredProviderNamePaths(processEnv, pathService)) {
+        const file = yield* fileSystem.readFileString(source).pipe(Effect.option);
+        if (Option.isNone(file)) continue;
+        for (const [id, name] of parseConfiguredProviderNames(file.value)) {
+          providerNames.set(id, name);
+        }
+      }
+      return reconcileOpenCode2Catalog({ cliModels, serverModels, providerNames });
+    });
+    const loadOpenCode2Models = localCatalog
+      ? loadServerOpenCode2Models.pipe(Effect.flatMap(readCliCatalog))
+      : loadServerOpenCode2Models;
     const listOpenCode2Workspace = (cwd: string) =>
       openCode2Server.withConnection(({ client, events, url }) =>
         Effect.gen(function* () {
@@ -714,10 +753,22 @@ export const OpenCodeDriver: ProviderDriver<
                 return publish;
               }),
             ),
-            Stream.runForEach(catalogWatch.changes, (listed) => {
-              catalog = listed;
-              return publish;
-            }),
+            Stream.runForEach(catalogWatch.changes, (listed) =>
+              Effect.gen(function* () {
+                catalog =
+                  listed === undefined || !localCatalog
+                    ? listed
+                    : yield* readCliCatalog(listed).pipe(
+                        // Keep the last catalog rather than the server's unfiltered one.
+                        Effect.catch((cause) =>
+                          Effect.logWarning("Could not read OpenCode's model list", {
+                            cause,
+                          }).pipe(Effect.as(catalog)),
+                        ),
+                      );
+                yield* publish;
+              }),
+            ),
           ],
           { concurrency: "unbounded", discard: true },
         );

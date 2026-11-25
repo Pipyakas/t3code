@@ -70,8 +70,21 @@ const reachedServer = (operation: string) =>
       ),
     ),
   );
+const MODEL_LIST_OUTPUT = "opencode/big-pickle\n";
+
+const withModelList = (
+  run: OpenCodeRuntime.OpenCodeRuntime["Service"]["runOpenCodeCommand"],
+): OpenCodeRuntime.OpenCodeRuntime["Service"]["runOpenCodeCommand"] =>
+  function (input) {
+    return input.args.includes("models")
+      ? Effect.succeed({ stdout: MODEL_LIST_OUTPUT, stderr: "", code: 0 })
+      : run(input);
+  };
+
 const openCode2Runtime = {
-  runOpenCodeCommand: () => Effect.succeed({ stdout: "opencode v2.0.18\n", stderr: "", code: 0 }),
+  runOpenCodeCommand: withModelList(() =>
+    Effect.succeed({ stdout: "opencode v2.0.18\n", stderr: "", code: 0 }),
+  ),
   startOpenCodeServerProcess: () => reachedServer("start"),
   connectToOpenCodeServer: () => reachedServer("connect"),
 } as unknown as OpenCodeRuntime.OpenCodeRuntime["Service"];
@@ -227,6 +240,15 @@ const makeIdlingOpenCode2Instance = Effect.gen(function* () {
   });
   const runtime = {
     ...openCode2Runtime,
+    // The CLI reads the same config, so it lists what the catalog holds.
+    runOpenCodeCommand: (input: { readonly args: ReadonlyArray<string> }) =>
+      input.args.includes("models")
+        ? Effect.sync(() => ({
+            stdout: catalogs.machine.map((model) => `${model.providerID}/${model.id}\n`).join(""),
+            stderr: "",
+            code: 0,
+          }))
+        : openCode2Runtime.runOpenCodeCommand(input as never),
     startOpenCodeServerProcess: ({
       verify,
     }: Parameters<OpenCodeRuntime.OpenCodeRuntime["Service"]["startOpenCodeServerProcess"]>[0]) =>
@@ -364,7 +386,7 @@ it.live("discovers models through a home-relative OpenCode wrapper", () =>
 // Under MISE_OFFLINE the shim cannot install OpenCode; a normal run installs 2.x first.
 const lazyMiseShim = {
   ...openCode2Runtime,
-  runOpenCodeCommand: ({ environment }: { readonly environment?: NodeJS.ProcessEnv }) =>
+  runOpenCodeCommand: withModelList(({ environment }) =>
     environment?.MISE_OFFLINE === "1"
       ? Effect.fail(
           new OpenCodeRuntime.OpenCodeRuntimeError({
@@ -373,6 +395,7 @@ const lazyMiseShim = {
           }),
         )
       : Effect.succeed({ stdout: "opencode v2.0.18\n", stderr: "", code: 0 }),
+  ),
 } as unknown as OpenCodeRuntime.OpenCodeRuntime["Service"];
 
 it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
@@ -398,7 +421,7 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
         const probeOffline: Array<string | undefined> = [];
         const runtime = {
           ...openCode2Runtime,
-          runOpenCodeCommand: (input) =>
+          runOpenCodeCommand: withModelList((input) =>
             Effect.sync(() => {
               probeOffline.push(input.environment?.MISE_OFFLINE);
               return {
@@ -408,6 +431,7 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
                 code: 0,
               };
             }),
+          ),
         } as OpenCodeRuntime.OpenCodeRuntime["Service"];
         const instance = yield* create(
           { serverUrl: "http://127.0.0.1:4096" },
@@ -504,7 +528,9 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
       const instance = yield* create({ binaryPath }, noHttp).pipe(
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, {
           ...openCode2Runtime,
-          runOpenCodeCommand: () => Effect.succeed({ stdout: version, stderr: "", code: 0 }),
+          runOpenCodeCommand: withModelList(() =>
+            Effect.succeed({ stdout: version, stderr: "", code: 0 }),
+          ),
         }),
       );
       yield* instance.snapshot.resolveMaintenance({ fresh: true });
@@ -564,8 +590,9 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
       const instance = yield* create({ binaryPath }, http).pipe(
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, {
           ...openCode2Runtime,
-          runOpenCodeCommand: () =>
+          runOpenCodeCommand: withModelList(() =>
             Effect.succeed({ stdout: "opencode v2.2.4", stderr: "", code: 0 }),
+          ),
           startOpenCodeServerProcess: ({ verify }) =>
             Effect.gen(function* () {
               const url = "http://127.0.0.1:4096";
@@ -1439,7 +1466,7 @@ it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
 const versionOutput: { current: string | undefined } = { current: undefined };
 const versionProbes: Array<string> = [];
 const changingRuntime = {
-  runOpenCodeCommand: ({ binaryPath }: { readonly binaryPath: string }) =>
+  runOpenCodeCommand: withModelList(({ binaryPath }) =>
     Effect.sync(() => versionProbes.push(binaryPath)).pipe(
       Effect.andThen(
         versionOutput.current === undefined
@@ -1452,6 +1479,7 @@ const changingRuntime = {
           : Effect.succeed({ stdout: versionOutput.current, stderr: "", code: 0 }),
       ),
     ),
+  ),
   startOpenCodeServerProcess: () => reachedServer("start"),
   connectToOpenCodeServer: () => reachedServer("connect"),
 } as unknown as OpenCodeRuntime.OpenCodeRuntime["Service"];
