@@ -223,11 +223,7 @@ const LOADERS: ReadonlyArray<{
     expected: SHELL,
     load: (input: HttpInput) =>
       fetchEnvironmentShellSnapshot(input).pipe(
-        Effect.map((answer) => {
-          if ("resumable" in answer) return answer;
-          const { loadPullRequests: _links, ...snapshot } = answer;
-          return snapshot;
-        }),
+        Effect.map(({ loadPullRequests: _links, ...snapshot }) => snapshot),
       ),
   },
   {
