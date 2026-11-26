@@ -573,7 +573,8 @@ describe("t3 pair", () => {
           });
           const spawner = ChildProcessSpawner.make((command) => {
             const { args } = command as unknown as { readonly args: ReadonlyArray<string> };
-            const serve = args[0] === "serve";
+            const serve = args[0] === "serve" && args[1] === "--bg";
+            const serveStatus = args[0] === "serve" && args[1] === "status";
             return Effect.succeed(
               ChildProcessSpawner.makeHandle({
                 pid: ChildProcessSpawner.ProcessId(1),
@@ -584,7 +585,11 @@ describe("t3 pair", () => {
                 stdin: Sink.drain,
                 stdout: Stream.make(
                   new TextEncoder().encode(
-                    serve ? "" : '{"Self":{"DNSName":"pair-test.tail.ts.net."}}',
+                    serveStatus
+                      ? "null"
+                      : serve
+                        ? ""
+                        : '{"Self":{"DNSName":"pair-test.tail.ts.net."}}',
                   ),
                 ),
                 stderr: Stream.make(

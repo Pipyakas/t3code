@@ -397,7 +397,8 @@ const commitInitialRepo = (cwd: string, initArgs: ReadonlyArray<string> = []) =>
       pathService.join(cwd, ".git", "config"),
       "[user]\n\temail = test@test.com\n\tname = Test\n",
       { flag: "a" },
-    );    yield* writeTextFile(cwd, "README.md", "# test\n");
+    );
+    yield* writeTextFile(cwd, "README.md", "# test\n");
     yield* git(cwd, ["add", "."]);
     yield* git(cwd, ["commit", "-m", "initial commit"]);
     const initialBranch = yield* git(cwd, ["branch", "--show-current"]);
