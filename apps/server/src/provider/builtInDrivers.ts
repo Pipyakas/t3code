@@ -30,13 +30,18 @@ export type BuiltInDriversEnv =
   | PiDriverEnv
   | MuseDriverEnv;
 
+/**
+ * Cross-driver order clients see: hydration synthesizes missing default instances in this
+ * order, so it sets the settings list and both pickers. Claude Code and OpenCode lead because
+ * this build enables them out of the box.
+ */
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
-  CodexDriver,
   ClaudeDriver,
+  OpenCodeDriver,
+  CodexDriver,
   CursorDriver,
   GrokDriver,
   FxDriver,
-  OpenCodeDriver,
   AntigravityDriver,
   KiroDriver,
   PiDriver,

@@ -1748,7 +1748,24 @@ describe("composerDraftStore modelSelection", () => {
     const fallback = deriveEffectiveComposerModelState({
       threadStarted: false,
       draft: before,
-      providers: [],
+      // Codex starts off in this fork, so the Codex provider this test drives is listed explicitly.
+      providers: [
+        {
+          instanceId: CODEX_INSTANCE,
+          driver: CODEX_DRIVER,
+          enabled: true,
+          installed: true,
+          status: "ready",
+          auth: { status: "authenticated" },
+          checkedAt: "2026-10-24T00:00:00.000Z",
+          version: "1.0.0",
+          models: [
+            { slug: DEFAULT_MODEL, name: DEFAULT_MODEL, isCustom: false, capabilities: null },
+          ],
+          slashCommands: [],
+          skills: [],
+        },
+      ],
       selectedProvider: CODEX_DRIVER,
       selectedInstanceId: CODEX_INSTANCE,
       threadModelSelection: h.model(),

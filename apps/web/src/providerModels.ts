@@ -13,7 +13,8 @@ import { createModelCapabilities, resolveSelectableModel } from "@t3tools/shared
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
-const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
+/** Last resort when no provider is enabled; a driver that is off by default. */
+const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 const RUNTIME_MODEL_CATALOG_DRIVERS: ReadonlySet<string> = new Set([
   "opencode",
   "antigravity",

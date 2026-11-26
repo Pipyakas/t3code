@@ -73,6 +73,12 @@ const localChild = (childThreadId: ThreadId | null): ThreadId => {
 const parentThreadId = ThreadId.make("thread:mcp-orchestrator-parent");
 const projectId = ProjectId.make("project:mcp-orchestrator");
 const codexInstanceId = ProviderInstanceId.make("codex");
+// Codex starts off in this fork; these tests delegate to a Codex instance.
+const layerServerSettings = ServerSettings.layerTest({
+  providerInstances: {
+    [codexInstanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+  },
+});
 const codexModel = "gpt-5.4";
 const parentPrompt = "Keep this parent turn active while orchestration tools are tested.";
 const delegatedPrompt = "Inspect the delegated API boundary and return the result.";
@@ -249,7 +255,7 @@ describe("orchestrator MCP toolkit", () => {
           Layer.provide(
             ThreadManagementService.layer.pipe(
               Layer.provide(layerOrchestrator),
-              Layer.provide(ServerSettings.layerTest()),
+              Layer.provide(layerServerSettings),
               Layer.provide(
                 CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
               ),
@@ -273,7 +279,7 @@ describe("orchestrator MCP toolkit", () => {
           ),
         ),
         Layer.provide(layerProviderRegistry),
-        Layer.provide(ServerSettings.layerTest()),
+        Layer.provide(layerServerSettings),
         Layer.provide(layerUnusedScheduledTaskStub),
         Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
         Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),

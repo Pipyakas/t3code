@@ -3990,7 +3990,14 @@ it.effect("reports a restart that stops the running turn as restarted", () =>
       Effect.provide(
         ThreadManagementService.layer.pipe(
           Layer.provideMerge(layer),
-          Layer.provide(ServerSettings.layerTest()),
+          Layer.provide(
+            // Codex starts off in this fork; this test sends to a Codex instance.
+            ServerSettings.layerTest({
+              providerInstances: {
+                [ProviderInstanceId.make("codex")]: { driver: "codex", enabled: true },
+              },
+            }),
+          ),
           Layer.provide(
             CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
           ),
@@ -4079,7 +4086,14 @@ it.effect("replays an accepted steer after its target turn completes", () =>
       Effect.provide(
         ThreadManagementService.layer.pipe(
           Layer.provideMerge(layer),
-          Layer.provide(ServerSettings.layerTest()),
+          Layer.provide(
+            // Codex starts off in this fork; this test sends to a Codex instance.
+            ServerSettings.layerTest({
+              providerInstances: {
+                [ProviderInstanceId.make("codex")]: { driver: "codex", enabled: true },
+              },
+            }),
+          ),
           Layer.provide(
             CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
           ),

@@ -2213,6 +2213,8 @@ describe("OrchestratorMcpService provider resolution", () => {
           }),
           ServerSettings.layerTest({
             providerInstances: {
+              // Codex starts off in this fork; this test expects it to advertise delegation.
+              [codexInstanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
               [ProviderInstanceId.make("pi")]: {
                 driver: ProviderDriverKind.make("pi"),
                 enabled: true,
@@ -4182,7 +4184,11 @@ describe("OrchestratorMcpService provider resolution", () => {
               getThreadShell: (threadId) =>
                 Effect.succeed(threadId === boundThreadId ? boundThread : null),
             }),
-            ServerSettings.layerTest(),
+            ServerSettings.layerTest({
+              providerInstances: {
+                codex: { driver: ProviderDriverKind.make("codex"), enabled: true },
+              },
+            }),
             Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
             Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
               list: () => Effect.succeed([]),
@@ -4458,11 +4464,15 @@ describe("OrchestratorMcpService provider resolution", () => {
             Layer.mock(ThreadManagementService.ThreadManagementService)({
               getThreadShell: () => Effect.succeed(null),
             }),
-            ServerSettings.layerTest(
-              defaults.environment === undefined
+            ServerSettings.layerTest({
+              // Codex starts off in this fork; these tasks run on a Codex instance.
+              providerInstances: {
+                codex: { driver: ProviderDriverKind.make("codex"), enabled: true },
+              },
+              ...(defaults.environment === undefined
                 ? {}
-                : { defaultModelSelection: defaults.environment },
-            ),
+                : { defaultModelSelection: defaults.environment }),
+            }),
             Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
             Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
               list: () => Effect.succeed([]),
