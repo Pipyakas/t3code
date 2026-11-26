@@ -8,6 +8,12 @@
 
 <p align="center">The open-source control plane for coding agents.</p>
 
+This fork of T3 Code changes some defaults: Claude and OpenCode start enabled while Codex, Cursor, and Grok start off, and Git hosts other than GitHub and GitLab start off until enabled in Settings > Source control.
+
+Desktop updates come from this fork's releases: upstream's newest stable release plus backported upstream fixes and this fork's changes, versioned `<upstream>-fork.N` and built as an unsigned Windows x64 installer and a Linux AppImage. To turn off telemetry and T3 Connect hosting on a machine, deploy a [managed policy](docs/user/managed-policy.md) with `"limits": { "telemetry": false, "connect": false }`; connecting to other machines still works.
+
+The installation links below distribute **upstream T3 Code**, not this fork.
+
 <p align="center">
   <a href="https://t3.codes/download"><strong>Download</strong></a> ·
   <a href="https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824">iOS</a> ·

@@ -49,6 +49,7 @@ import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
+  useIgnoredVersionUpdateEnvironments,
 } from "~/versionSkew";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useT3ConnectTurnOn } from "~/cloud/useT3ConnectTurnOn";
@@ -189,6 +190,8 @@ export function SavedBackendListRow({
     },
   });
   const versionMismatch = resolveServerConfigVersionMismatch(environment.serverConfig, messages);
+  const [ignoredVersionUpdates, setIgnoredVersionUpdates] = useIgnoredVersionUpdateEnvironments();
+  const versionUpdatesIgnored = ignoredVersionUpdates.includes(environmentId);
   const serverUpdateState = useAtomValue(serverEnvironment.updateStateAtom(environmentId));
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
@@ -453,6 +456,17 @@ export function SavedBackendListRow({
           <MenuItem onClick={() => setRoutesOpen((open) => !open)}>
             <RouteIcon />
             {routesOpen ? gt("Hide routes") : gt("Routes")}
+          </MenuItem>
+          <MenuItem
+            onClick={() =>
+              setIgnoredVersionUpdates((ids) =>
+                ids.includes(environmentId)
+                  ? ids.filter((id) => id !== environmentId)
+                  : [...ids, environmentId],
+              )
+            }
+          >
+            {versionUpdatesIgnored ? <T>Show version updates</T> : <T>Ignore version updates</T>}
           </MenuItem>
           {mcpUrl ? (
             <MenuItem onClick={() => copyMcpUrl(mcpUrl, { url: mcpUrl })}>

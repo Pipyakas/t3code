@@ -71,6 +71,7 @@ function browserDeviceType(identity: BrowserIdentity): AuthClientMetadataDeviceT
 
 export function clientPresentationMetadata(input: {
   readonly appVersion: string;
+  readonly upstreamVersion?: string | null;
   readonly hosted: boolean;
   readonly identity: BrowserIdentity;
   readonly desktopBridge: Pick<DesktopBridge, "getClientPlatform"> | undefined;
@@ -83,6 +84,7 @@ export function clientPresentationMetadata(input: {
       os: clientOsFromElectronPlatform(input.desktopBridge.getClientPlatform()),
       surface: "desktop",
       ...(input.appVersion === "0.0.0" ? {} : { appVersion: input.appVersion }),
+      ...(input.upstreamVersion ? { upstreamVersion: input.upstreamVersion } : {}),
     };
   }
 
@@ -95,5 +97,6 @@ export function clientPresentationMetadata(input: {
     webDeployment: input.hosted ? "hosted" : "server",
     browser: browserFamily(input.identity.userAgent),
     ...(input.appVersion === "0.0.0" ? {} : { appVersion: input.appVersion }),
+    ...(input.upstreamVersion ? { upstreamVersion: input.upstreamVersion } : {}),
   };
 }

@@ -43,7 +43,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { FetchHttpClient } from "effect/http";
 
-import { APP_VERSION } from "../branding";
+import { APP_UPSTREAM_VERSION, APP_VERSION } from "../branding";
 import { readDesktopPrimaryBearerToken } from "../environments/primary/desktopAuth";
 import * as PrimaryEnvironmentHttpLayer from "../environments/primary/httpLayer";
 import {
@@ -175,6 +175,7 @@ const layerWakeups = Wakeups.layer({
 export function currentClientMetadata() {
   return clientPresentationMetadata({
     appVersion: APP_VERSION,
+    upstreamVersion: APP_UPSTREAM_VERSION,
     hosted: isHostedStaticApp(),
     identity: {
       userAgent: navigator.userAgent,
