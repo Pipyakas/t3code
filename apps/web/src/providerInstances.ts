@@ -186,16 +186,23 @@ function applyProviderInstanceBranding(
   };
 }
 
-/** Picker order: each driver's default instance first, then its custom instances. */
+/**
+ * Picker order: each driver's default instance first, then its custom instances, with the
+ * instances the user dragged into `providerOrder` leading.
+ */
 export function providerInstanceEntriesFor(
   providers: ReadonlyArray<ServerProvider>,
-  settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">,
+  settings: Pick<
+    ServerSettings,
+    "providerInstances" | "projectSettingsOverrides" | "providerOrder"
+  >,
   projectId: ProjectId | null,
 ): ReadonlyArray<ProviderInstanceEntry> {
   return pipe(
     deriveProviderInstanceEntries(providers),
     (entries) => applyProviderInstanceSettings(entries, settings, projectId),
     sortProviderInstanceEntries,
+    (entries) => orderProviderInstanceEntries(entries, settings.providerOrder ?? []),
   );
 }
 
@@ -218,6 +225,33 @@ function sortProviderInstanceEntries(
     sorted.push(...defaults, ...customs);
   }
   return sorted;
+}
+
+/**
+ * Ids in `order` lead in that order; every other entry keeps its relative order after them, so
+ * a provider the user never arranged lands at the end rather than inside the saved arrangement.
+ */
+export function orderProviderInstanceEntries<T extends { readonly instanceId: ProviderInstanceId }>(
+  entries: ReadonlyArray<T>,
+  order: ReadonlyArray<ProviderInstanceId>,
+): ReadonlyArray<T> {
+  if (order.length === 0 || entries.length === 0) return entries;
+  // Stable partition: one pass over `order` picks the placed entries, one pass
+  // over `entries` keeps everything else in its original order.
+  const entryById = new Map<ProviderInstanceId, T>();
+  for (const entry of entries) {
+    if (!entryById.has(entry.instanceId)) entryById.set(entry.instanceId, entry);
+  }
+  const placed = new Set<ProviderInstanceId>();
+  const ordered: T[] = [];
+  for (const id of order) {
+    const entry = entryById.get(id);
+    if (entry === undefined || placed.has(id)) continue;
+    placed.add(id);
+    ordered.push(entry);
+  }
+  if (ordered.length === 0) return entries;
+  return [...ordered, ...entries.filter((entry) => !placed.has(entry.instanceId))];
 }
 
 function getProviderInstanceEntry(
