@@ -10,6 +10,7 @@ import { Platform, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ControlPill } from "../../components/ui/ControlPill";
+import { useContentTopInset } from "../../components/ui/useBarInset";
 import { useAppForeground } from "../../lib/appState";
 
 import { useThreadServerBrowserTabs } from "../../state/preview";
