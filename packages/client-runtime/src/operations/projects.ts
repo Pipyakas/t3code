@@ -160,12 +160,19 @@ export function getDefaultCloneUrl(
 
 export type OfferedSourceControlProviders = ServerSettings["offeredSourceControlProviders"];
 
-/** Whether the project pickers offer a host. Only the default host is on until the user turns others on. */
+// This fork offers GitLab alongside the default host.
+const DEFAULT_OFFERED_SOURCE_CONTROL_PROVIDERS: ReadonlySet<string> = new Set(["gitlab"]);
+
+/** Whether the project pickers offer a host. Only the default hosts are on until the user turns others on. */
 export function isSourceControlProviderOffered(
   offered: OfferedSourceControlProviders | undefined,
   kind: SourceControlProviderKind,
 ): boolean {
-  return offered?.[kind] ?? kind === sourceControlClients.get(undefined).kind;
+  return (
+    offered?.[kind] ??
+    (kind === sourceControlClients.get(undefined).kind ||
+      DEFAULT_OFFERED_SOURCE_CONTROL_PROVIDERS.has(kind))
+  );
 }
 
 export function sortAddProjectProviderSources(

@@ -28,9 +28,9 @@ describe("add project shared logic", () => {
     expect(getAddProjectInitialQuery("C:\\dev")).toBe("C:\\dev\\");
   });
 
-  it("offers only GitHub until other hosts are turned on", () => {
+  it("offers only GitHub and GitLab until other hosts are turned on", () => {
     const ready = () => ({ ready: true, hint: null });
-    expect(sortAddProjectProviderSources(ready, {})).toEqual(["github"]);
+    expect(sortAddProjectProviderSources(ready, {})).toEqual(["github", "gitlab"]);
     expect(sortAddProjectProviderSources(ready, { gitlab: true, github: false })).toEqual([
       "gitlab",
     ]);
