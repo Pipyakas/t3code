@@ -1385,7 +1385,7 @@ export function useComposerSend(input: ComposerSendInput) {
         )
       ) {
         // A draft typed meanwhile keeps the composer, so the failed text stays reachable here.
-        const failedText = sendSnapshot.draftText;
+        const failedText = sendSnapshot.messageText;
         if (failedText.trim().length > 0) {
           toastManager.add(
             stackedThreadToast({

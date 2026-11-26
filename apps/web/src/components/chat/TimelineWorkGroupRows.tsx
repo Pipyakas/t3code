@@ -436,7 +436,7 @@ export function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind:
   const live = ctx.pendingApprovals.size === 0;
   const activity = (
     <LiveActivityRow
-      label={providerStartingLabel ?? row.label ?? liveAnswerPreview ?? "Thinking"}
+      label={providerStartingLabel ?? liveAnswerPreview ?? "Thinking"}
       iconName="brain"
       active={live}
       shimmer={live}
