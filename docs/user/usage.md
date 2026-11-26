@@ -158,8 +158,8 @@ context use against the model's limit. A tick on the bar marks where the provide
 automatically, when it reports that point.
 
 OpenCode Go reports its session, weekly, and monthly allowance when OpenCode runs locally in
-the environment. T3 cannot report limits for external OpenCode servers because their credentials
-belong to the remote server. Limits use the OpenCode Console account you signed in to with
+the environment, and external OpenCode 2 servers that report usage show Go allowances and Console
+budgets for the connected workspace. Local limits use the OpenCode Console account you signed in to with
 `opencode auth login`, or an OpenCode Go API key. OpenCode renews the sign-in while it runs; if
 limits stop appearing, sign in again. You can also add your Go API key as
 `OPENCODE_API_KEY` in the OpenCode instance's **Environment variables**, then refresh provider
