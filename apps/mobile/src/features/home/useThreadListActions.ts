@@ -245,9 +245,6 @@ export function useThreadListActions(): {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
-  const regenerateTitle = useAtomCommand(threadEnvironment.regenerateTitle, {
-    reportFailure: false,
-  });
   const snoozeInFlightThreadKeys = useRef(new Set<string>());
   const titleRegenerationInFlightThreadKeys = useRef(new Set<string>());
 
@@ -547,9 +544,9 @@ export function useThreadListActions(): {
     titleRegenerationInFlightThreadKeys.current.add(key);
     selectionHaptic();
     const succeeded = await (async () => {
-      const result = await regenerateTitle({
+      const result = await updateThreadMetadata({
         environmentId: thread.environmentId,
-        input: { threadId: thread.id },
+        input: { threadId: thread.id, regenerateTitle: true },
       });
       if (result._tag === "Failure") {
         const error = Cause.squash(result.cause);
@@ -558,13 +555,6 @@ export function useThreadListActions(): {
           error instanceof Error && error.message.trim().length > 0
             ? error.message
             : "The thread title could not be regenerated.",
-        );
-        return false;
-      }
-      if (result.value?.status === "failed") {
-        Dialog.alert(
-          "Could not regenerate title",
-          result.value.message ?? "The thread title could not be regenerated.",
         );
         return false;
       }

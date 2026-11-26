@@ -21,7 +21,6 @@ import {
   threadActionRequiresOperate,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
-import { titleRegenerationToast } from "../components/threadTitleRegenerationToast";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -89,7 +88,7 @@ export function useThreadActionMenu(input: {
     markThreadUnread,
     turnThreadIntoProject,
   } = useThreadActions();
-  const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
+  const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
@@ -251,17 +250,15 @@ export function useThreadActionMenu(input: {
         case "rename":
           onStartRename();
           return;
-        case "regenerate-title": {
+        case "regenerate-title":
           if (isRegeneratingTitle) return;
-          const toast = titleRegenerationToast([
-            await regenerateThreadTitle({
+          await reportFailure("Failed to regenerate thread title", () =>
+            updateThreadMetadata({
               environmentId: threadRef.environmentId,
-              input: { threadId: threadRef.threadId },
+              input: { threadId: threadRef.threadId, regenerateTitle: true },
             }),
-          ]);
-          if (toast) toastManager.add(toast);
+          );
           return;
-        }
         case "mark-unread":
           markThreadUnread(threadRef);
           return;
