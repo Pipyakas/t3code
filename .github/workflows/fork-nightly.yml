@@ -193,7 +193,8 @@ jobs:
   build_linux:
     name: Build Linux x64
     needs: meta
-    runs-on: ubuntu-latest
+    # scripts/linux-glibc.ts caps native modules at Ubuntu 24.04's glibc.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     # T3's public client config for T3 Connect. The desktop app and the server
     # executable both build it in; without it the server cannot host.
