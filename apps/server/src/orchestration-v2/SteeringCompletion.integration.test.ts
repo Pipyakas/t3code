@@ -4558,7 +4558,14 @@ it.effect("an agent's auto send steers past its own explicitly queued message", 
       Effect.provide(
         ThreadManagementService.layer.pipe(
           Layer.provideMerge(layer),
-          Layer.provide(ServerSettings.layerTest()),
+          Layer.provide(
+            // Codex starts off in this fork; this test sends to a Codex instance.
+            ServerSettings.layerTest({
+              providerInstances: {
+                [ProviderInstanceId.make("codex")]: { driver: "codex", enabled: true },
+              },
+            }),
+          ),
           Layer.provide(
             CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
           ),
